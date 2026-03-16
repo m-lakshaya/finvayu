@@ -8,35 +8,51 @@
   --radius-xl: 0.75rem;
 }
 
+@variant dark (&:where(.dark, .dark *));
+
 :root {
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-bg-dark: rgba(15, 23, 42, 0.8);
-  --premium-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --glass-bg: rgba(255, 255, 255, 0.45);
+  --glass-bg-dark: rgba(15, 23, 42, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.3);
+  --glass-border-dark: rgba(255, 255, 255, 0.1);
+  --premium-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.1);
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 @layer base {
   body {
-    @apply bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display transition-colors duration-200;
+    @apply bg-background-light dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-display transition-colors duration-500;
   }
 }
 
 @layer components {
   .glass-card {
-    @apply backdrop-blur-xl border border-white/30 shadow-[--premium-shadow];
+    @apply backdrop-blur-2xl border shadow-2xl transition-all duration-300;
     background: var(--glass-bg);
+    border-color: var(--glass-border);
   }
   
   .dark .glass-card {
-    @apply border-white/10;
     background: var(--glass-bg-dark);
+    border-color: var(--glass-border-dark);
+  }
+
+  .glass-header {
+    @apply backdrop-blur-xl border-b transition-all duration-300;
+    background: rgba(255, 255, 255, 0.6);
+    border-color: var(--glass-border);
+  }
+
+  .dark .glass-header {
+    background: rgba(15, 23, 42, 0.6);
+    border-color: var(--glass-border-dark);
   }
 
   .input-premium {
-    @apply transition-all duration-200;
-  }
-
-  .input-premium:focus {
-    @apply -translate-y-[1px] shadow-[0_4px_12px_rgba(19,127,236,0.15)];
+    @apply bg-white/50 dark:bg-white/5 border border-white/20 dark:border-white/5 backdrop-blur-md transition-all duration-300 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/20;
   }
 }
 
