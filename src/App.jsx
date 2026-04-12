@@ -1,54 +1,71 @@
 import React from 'react';
-import { HashRouter as Router, Routes, Route } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import LeadList from './pages/LeadList';
 import Customers from './pages/Customers';
 import LeadDetails from './pages/LeadDetails';
+import UserManagement from './pages/UserManagement';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
 import FollowUps from './pages/FollowUps';
-import Settings from './pages/Settings';
+import Documents from './pages/Documents';
+import LoanApps from './pages/LoanApps';
 import Bankers from './pages/Bankers';
 import Collaborators from './pages/Collaborators';
 import Revenue from './pages/Revenue';
 import Calls from './pages/Calls';
 import Attendance from './pages/Attendance';
 import Reports from './pages/Reports';
-import Documents from './pages/Documents';
-import LoanApps from './pages/LoanApps';
+import Settings from './pages/Settings';
+import { AuthProvider, useAuth } from './hooks/useAuth';
 
-// Placeholder components for pages
-const UnderConstruction = ({ title }) => (
-  <div className="glass-card p-12 rounded-2xl text-center border border-slate-200 dark:border-slate-800 max-w-2xl mx-auto mt-20 animate-float">
-    <div className="size-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
-      <div className="size-10 bg-primary rounded-lg"></div>
+// Protected Route Wrapper
+const ProtectedRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+      <div className="size-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
     </div>
-    <h2 className="text-2xl font-bold mb-4">{title} Page</h2>
-    <p className="text-slate-500">I am currently migrating this feature from the static HTML version to React. Check back soon!</p>
-  </div>
-);
+  );
+  
+  if (!user) return <Navigate to="/login" replace />;
+  
+  return <Layout>{children}</Layout>;
+};
 
 function App() {
   return (
-    <Router>
-      <Layout>
+    <AuthProvider>
+      <Router>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/leads" element={<LeadList />} />
-          <Route path="/leads/:id" element={<LeadDetails />} />
-          <Route path="/customers" element={<Customers />} />
-          <Route path="/follow-ups" element={<FollowUps />} />
-          <Route path="/documents" element={<Documents />} />
-          <Route path="/loan-apps" element={<LoanApps />} />
-          <Route path="/bankers" element={<Bankers />} />
-          <Route path="/collaborators" element={<Collaborators />} />
-          <Route path="/revenue" element={<Revenue />} />
-          <Route path="/calls" element={<Calls />} />
-          <Route path="/attendance" element={<Attendance />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/settings" element={<Settings />} />
+          {/* Public Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+
+          {/* Protected CRM Routes */}
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/leads" element={<ProtectedRoute><LeadList /></ProtectedRoute>} />
+          <Route path="/leads/:id" element={<ProtectedRoute><LeadDetails /></ProtectedRoute>} />
+          <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
+          <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
+          <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+          <Route path="/loan-apps" element={<ProtectedRoute><LoanApps /></ProtectedRoute>} />
+          <Route path="/bankers" element={<ProtectedRoute><Bankers /></ProtectedRoute>} />
+          <Route path="/collaborators" element={<ProtectedRoute><Collaborators /></ProtectedRoute>} />
+          <Route path="/revenue" element={<ProtectedRoute><Revenue /></ProtectedRoute>} />
+          <Route path="/calls" element={<ProtectedRoute><Calls /></ProtectedRoute>} />
+          <Route path="/attendance" element={<ProtectedRoute><Attendance /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/console" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
+          
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </Layout>
-    </Router>
+      </Router>
+    </AuthProvider>
   );
 }
 

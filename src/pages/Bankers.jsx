@@ -1,16 +1,20 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Building2, 
   MapPin, 
   Phone, 
-  Mail, 
   ExternalLink, 
   Search, 
   Filter, 
   Plus,
   ArrowUpRight,
-  ShieldCheck
+  ShieldCheck,
+  Users2,
+  Loader2
 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../hooks/useAuth';
+import CreateBankerModal from '../components/CreateBankerModal';
 
 const BankerCard = ({ banker }) => (
   <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all group relative overflow-hidden">
@@ -24,13 +28,13 @@ const BankerCard = ({ banker }) => (
     </div>
     <div className="space-y-4">
       <div>
-        <h4 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">{banker.name}</h4>
-        <p className="text-xs font-bold text-primary uppercase tracking-wider">{banker.institution}</p>
+        <h4 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 line-clamp-1">{banker.name}</h4>
+        <p className="text-xs font-bold text-primary uppercase tracking-wider line-clamp-1">{banker.institution}</p>
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium">
           <MapPin size={14} className="text-slate-400" />
-          {banker.branch}
+          {banker.branch || 'General Branch'}
         </div>
         <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium">
           <Phone size={14} className="text-slate-400" />
@@ -40,32 +44,78 @@ const BankerCard = ({ banker }) => (
       <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
         <div className="flex flex-col">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Products</span>
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200 italic">{banker.products}</span>
+          <span className="text-sm font-bold text-slate-700 dark:text-slate-200 line-clamp-1">{banker.products || 'All Portfolio'}</span>
         </div>
-        <button className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-primary hover:text-white transition-all">
+        <a href={`tel:${banker.phone}`} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-primary hover:text-white transition-all">
           <ExternalLink size={16} />
-        </button>
+        </a>
       </div>
     </div>
   </div>
 );
 
 const Bankers = () => {
-  const bankers = [
-    { name: 'Amitabh Sharma', institution: 'HDFC Bank', branch: 'Mumbai Corporate Office', phone: '+91 98765 00111', products: 'Home, LAP, PL', status: 'Active' },
-    { name: 'Priya Rajan', institution: 'ICICI Bank', branch: 'Chennai Regional Hub', phone: '+91 98765 00222', products: 'Business Loan, CC', status: 'Active' },
-    { name: 'Vikram Singh', institution: 'Axis Bank', branch: 'Delhi NCR Tower', phone: '+91 98765 00333', products: 'Auto Loan, Mortgage', status: 'Inactive' },
-    { name: 'Sneha Gupta', institution: 'SBI', branch: 'Bangalore MG Road', phone: '+91 98765 00444', products: 'Retail Assets', status: 'Active' },
-  ];
+  const { profile } = useAuth();
+  const [bankers, setBankers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [institutionFilter, setInstitutionFilter] = useState('All Institutions');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [counts, setCounts] = useState({ banks: 0, active: 0, files: 156 });
+
+  const fetchBankers = useCallback(async () => {
+    if (!profile?.org_id) return;
+    setLoading(true);
+    try {
+      let query = supabase
+        .from('bankers')
+        .select('*')
+        .eq('org_id', profile.org_id)
+        .order('name');
+
+      if (search) {
+        query = query.or(`name.ilike.%${search}%,institution.ilike.%${search}%,branch.ilike.%${search}%`);
+      }
+
+      if (institutionFilter !== 'All Institutions') {
+        query = query.eq('institution', institutionFilter);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      
+      setBankers(data || []);
+
+      // Calculate Stats
+      const uniqueBanks = new Set(data?.map(b => b.institution)).size;
+      const activeCount = data?.filter(b => b.status === 'Active').length || 0;
+      
+      setCounts(prev => ({ ...prev, banks: uniqueBanks, active: activeCount }));
+
+    } catch (error) {
+      console.error('Error fetching bankers:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [profile?.org_id, search, institutionFilter]);
+
+  useEffect(() => {
+    fetchBankers();
+  }, [fetchBankers]);
+
+  const institutions = ['All Institutions', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'SBI', 'Kotak Bank'];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight">Banker Directory</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Banker Directory</h1>
           <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1">Manage and access your point of contact at financial institutions.</p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all">
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]"
+        >
           <Plus size={18} />
           Add New Banker
         </button>
@@ -75,54 +125,81 @@ const Bankers = () => {
       <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="Search by name, bank, or city..." className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none" />
+          <input 
+            type="text" 
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, bank, or city..." 
+            className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none" 
+          />
         </div>
-        <select className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-all outline-none min-w-[150px]">
-          <option>All Institutions</option>
-          <option>HDFC Bank</option>
-          <option>ICICI Bank</option>
-          <option>Axis Bank</option>
+        <select 
+          value={institutionFilter}
+          onChange={e => setInstitutionFilter(e.target.value)}
+          className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all outline-none min-w-[180px]"
+        >
+          {institutions.map(inst => <option key={inst}>{inst}</option>)}
         </select>
-        <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
+        <button className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
           <Filter size={18} />
           Filters
         </button>
       </div>
 
       {/* Banker Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {bankers.map((banker, i) => (
-          <BankerCard key={i} banker={banker} />
-        ))}
-      </div>
+      {loading ? (
+        <div className="py-20 text-center">
+          <Loader2 className="animate-spin text-primary mx-auto mb-4" size={40} />
+          <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">Syncing with Financial Partners...</p>
+        </div>
+      ) : bankers.length === 0 ? (
+        <div className="py-20 text-center glass-card rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+          <Building2 size={48} className="text-slate-200 dark:text-slate-800 mx-auto mb-4" />
+          <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No bankers found in this organization.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 min-h-[300px]">
+          {bankers.map((banker) => (
+            <BankerCard key={banker.id} banker={banker} />
+          ))}
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
           <div className="relative z-10">
             <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Connected Banks</p>
-            <h4 className="text-3xl font-extrabold mt-1">12</h4>
+            <h4 className="text-3xl font-extrabold mt-1">{counts.banks}</h4>
           </div>
           <Building2 size={48} className="text-primary/10 absolute -right-2 -bottom-2" />
         </div>
         <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
           <div className="relative z-10">
             <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Active Bankers</p>
-            <h4 className="text-3xl font-extrabold mt-1 text-emerald-500">48</h4>
+            <h4 className="text-3xl font-extrabold mt-1 text-emerald-500">{counts.active}</h4>
           </div>
-          <Users2 className="text-emerald-500/10 absolute -right-2 -bottom-2" />
+          <Users2 size={48} className="text-emerald-500/10 absolute -right-2 -bottom-2" />
         </div>
         <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
           <div className="relative z-10">
             <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Active Files</p>
-            <h4 className="text-3xl font-extrabold mt-1 text-primary">156</h4>
+            <h4 className="text-3xl font-extrabold mt-1 text-primary">{counts.files}</h4>
           </div>
           <ArrowUpRight size={48} className="text-primary/10 absolute -right-2 -bottom-2" />
         </div>
       </div>
+
+      <CreateBankerModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onBankerCreated={(newBanker) => {
+          setBankers(prev => [...prev, newBanker].sort((a,b) => a.name.localeCompare(b.name)));
+          setCounts(prev => ({ ...prev, active: prev.active + 1 }));
+        }}
+      />
     </div>
   );
 };
 
 export default Bankers;
-import { Users2 } from 'lucide-react';
