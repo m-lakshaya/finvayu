@@ -7,7 +7,8 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     institution: 'HDFC Bank',
     branch: '',
@@ -26,6 +27,7 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
         .from('bankers')
         .insert([{
           ...formData,
+          name: `${formData.first_name} ${formData.last_name}`.trim(),
           org_id: profile.org_id
         }])
         .select();
@@ -80,16 +82,28 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
             </select>
           </div>
 
-          {/* Name */}
-          <div className="space-y-2">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <User size={12} className="text-primary" /> Contact Person Name
-            </label>
-            <input 
-              required name="name" value={formData.name} onChange={handleChange}
-              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-              placeholder="E.g. Amitabh Sharma"
-            />
+          {/* Name Split */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-primary" /> First Name
+              </label>
+              <input 
+                required name="first_name" value={formData.first_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="E.g. Amitabh"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-primary" /> Last Name
+              </label>
+              <input 
+                required name="last_name" value={formData.last_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="E.g. Sharma"
+              />
+            </div>
           </div>
 
           {/* Branch */}

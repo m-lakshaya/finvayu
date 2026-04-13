@@ -56,7 +56,8 @@ const UserManagement = () => {
   }, [fetchUsers]);
 
   const filteredUsers = users.filter(u => 
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (u.first_name || u.full_name || u.name)?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.last_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     u.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -134,10 +135,12 @@ const UserManagement = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <div className="size-9 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-black text-[11px] group-hover:scale-110 transition-transform">
-                          {u.name?.split(' ').map(n => n[0]).join('') || '??'}
+                          {u.first_name ? `${u.first_name[0]}${u.last_name?.[0] || ''}` : (u.full_name || u.name)?.split(' ').map(n => n[0]).join('') || '??'}
                         </div>
                         <div>
-                          <p className="font-black text-slate-900 dark:text-slate-100 leading-none">{u.name}</p>
+                          <p className="font-black text-slate-900 dark:text-slate-100 leading-none">
+                            {u.first_name ? `${u.first_name} ${u.last_name || ''}` : u.full_name || u.name}
+                          </p>
                           <p className="text-[10px] text-slate-500 font-black uppercase mt-1 tracking-tighter">{u.email}</p>
                         </div>
                       </div>

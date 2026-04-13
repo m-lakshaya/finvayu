@@ -8,6 +8,8 @@ const CreateCollaboratorModal = ({ isOpen, onClose, onPartnerCreated }) => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    contact_first_name: '',
+    contact_last_name: '',
     city: '',
     phone: '',
     email: '',
@@ -105,6 +107,28 @@ const CreateCollaboratorModal = ({ isOpen, onClose, onPartnerCreated }) => {
                     <option>Gold</option>
                     <option>Platinum</option>
                 </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-indigo-500" /> First Name
+              </label>
+              <input 
+                required name="contact_first_name" value={formData.contact_first_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                placeholder="E.g. Rajesh"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-indigo-500" /> Last Name
+              </label>
+              <input 
+                required name="contact_last_name" value={formData.contact_last_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                placeholder="E.g. Kumar"
+              />
             </div>
           </div>
 

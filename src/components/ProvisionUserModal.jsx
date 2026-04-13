@@ -7,7 +7,8 @@ const ProvisionUserModal = ({ isOpen, onClose, onUserProvisioned }) => {
   const { profile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
-    full_name: '',
+    first_name: '',
+    last_name: '',
     email: '',
     role_id: 'sa'
   });
@@ -18,9 +19,9 @@ const ProvisionUserModal = ({ isOpen, onClose, onUserProvisioned }) => {
     e.preventDefault();
     setLoading(true);
     try {
-      // Pre-provision a profile with a placeholder ID (or no ID if we allow it)
-      // Since 'id' is a primary key, we'll use a temporary random UUID
-      // and update it later during signup.
+      // Create a pre-provisioned profile directly in the database.
+      // We use a temporary random UUID for the profile ID.
+      // NOTE: This requires dropping the Foreign Key constraint on 'profiles.id' in your Supabase SQL Editor.
       const tempId = crypto.randomUUID();
       
       const { data, error } = await supabase
@@ -28,16 +29,18 @@ const ProvisionUserModal = ({ isOpen, onClose, onUserProvisioned }) => {
         .insert([{
           id: tempId,
           org_id: profile.org_id,
-          name: formData.name,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          full_name: `${formData.first_name} ${formData.last_name}`.trim(),
           email: formData.email.toLowerCase(),
           role_id: formData.role_id,
-          profile_type: 'STANDARD_USER' // Default profile type
+          profile_type: 'STANDARD_USER'
         }])
         .select();
 
       if (error) throw error;
       
-      alert('Invitation Prepared! Since public signup is disabled, please use the Supabase Dashboard to send the invitation email, or deploy the Edge Function provided in the instructions.');
+      alert('User Provisioned! You can now ask them to Sign Up with this email, or invite them manually from the Supabase Dashboard.');
       if (onUserProvisioned) onUserProvisioned(data[0]);
       onClose();
     } catch (error) {
@@ -69,15 +72,27 @@ const ProvisionUserModal = ({ isOpen, onClose, onUserProvisioned }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <User size={12} className="text-primary" /> Full Name
-            </label>
-            <input 
-              required name="name" value={formData.name} onChange={handleChange}
-              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              placeholder="E.g. John Doe"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-primary" /> First Name
+              </label>
+              <input 
+                required name="first_name" value={formData.first_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                placeholder="E.g. John"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                <User size={12} className="text-primary" /> Last Name
+              </label>
+              <input 
+                required name="last_name" value={formData.last_name} onChange={handleChange}
+                className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                placeholder="E.g. Doe"
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">

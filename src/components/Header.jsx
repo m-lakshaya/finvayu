@@ -11,7 +11,9 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
   const dropdownRef = useRef(null);
 
   const roleName = profile?.roles?.name || 'User';
-  const userName = profile?.name || profile?.full_name || profile?.email?.split('@')[0] || 'User';
+  const userName = profile?.first_name 
+    ? `${profile.first_name} ${profile.last_name || ''}`.trim() 
+    : profile?.full_name || profile?.name || profile?.email?.split('@')[0] || 'User';
 
   // Close dropdown when clicking outside
   useEffect(() => {
