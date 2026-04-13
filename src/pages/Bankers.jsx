@@ -62,6 +62,8 @@ const Bankers = () => {
   const [institutionFilter, setInstitutionFilter] = useState('All Institutions');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [counts, setCounts] = useState({ banks: 0, active: 0, files: 156 });
+  
+  const isSelf = ['banker'].includes(profile?.roles?.name?.toLowerCase());
 
   const fetchBankers = useCallback(async () => {
     if (!profile?.org_id) return;
@@ -112,13 +114,15 @@ const Bankers = () => {
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Banker Directory</h1>
           <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1">Manage and access your point of contact at financial institutions.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]"
-        >
-          <Plus size={18} />
-          Add New Banker
-        </button>
+        {(profile?.roles?.name?.toLowerCase() === 'ceo' || profile?.roles?.name?.toLowerCase() === 'rm' || profile?.roles?.name?.toLowerCase() === 'regional manager') && (
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]"
+          >
+            <Plus size={18} />
+            Add New Banker
+          </button>
+        )}
       </div>
 
       {/* Filter Bar */}
@@ -151,6 +155,29 @@ const Bankers = () => {
         <div className="py-20 text-center">
           <Loader2 className="animate-spin text-primary mx-auto mb-4" size={40} />
           <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">Syncing with Financial Partners...</p>
+        </div>
+      ) : isSelf ? (
+        <div className="space-y-8">
+            <div className="max-w-xl">
+                 <BankerCard banker={{ 
+                    name: profile.name, 
+                    institution: 'Private Portfolio', 
+                    phone: profile.phone || 'N/A', 
+                    branch: 'Personal Dashboard',
+                    status: 'Active' 
+                 }} />
+            </div>
+            <div className="glass-card p-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-center">
+                <Users2 size={32} className="mx-auto mb-4 text-slate-300" />
+                <h4 className="text-lg font-extrabold">Your Managed Leads</h4>
+                <p className="text-slate-500 text-sm mb-6">You only have access to leads assigned to your individual profile.</p>
+                <button 
+                  onClick={() => navigate('/leads')}
+                  className="px-6 py-2 bg-primary text-white rounded-xl text-xs font-bold"
+                >
+                  View My Leads
+                </button>
+            </div>
         </div>
       ) : bankers.length === 0 ? (
         <div className="py-20 text-center glass-card rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">

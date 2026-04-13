@@ -8,6 +8,8 @@ import LeadDetails from './pages/LeadDetails';
 import UserManagement from './pages/UserManagement';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import FollowUps from './pages/FollowUps';
 import Documents from './pages/Documents';
 import LoanApps from './pages/LoanApps';
@@ -43,6 +45,8 @@ function App() {
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Protected CRM Routes */}
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />

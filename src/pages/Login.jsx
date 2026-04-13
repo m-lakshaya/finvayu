@@ -70,7 +70,7 @@ const Login = () => {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block ml-1">Password</label>
-                <a href="#" className="text-[10px] font-bold text-primary hover:underline">Forgot?</a>
+                <Link to="/forgot-password" size={20} className="text-[10px] font-bold text-primary hover:underline">Forgot?</Link>
               </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -99,8 +99,8 @@ const Login = () => {
             </button>
           </form>
 
-          <p className="text-center mt-8 text-sm text-slate-500 font-medium">
-            Don't have an account? <Link to="/signup" className="text-primary font-bold hover:underline">Create Account</Link>
+          <p className="text-center mt-8 text-sm text-slate-500 font-medium italic">
+            Private Organization Access
           </p>
         </div>
 

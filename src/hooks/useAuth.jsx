@@ -66,25 +66,35 @@ export const AuthProvider = ({ children }) => {
 
   const hasPermission = (permission) => {
     if (!profile) return false;
-    // Special case for SYSTEM_ADMIN
-    if (profile.profile_type === 'SYSTEM_ADMIN') return true;
     
-    const permissions = {
+    // 1. Root profile type permissions
+    const typePermissions = {
       'SYSTEM_ADMIN': ['READ_ALL', 'MODIFY_ALL', 'CREATE_LEADS', 'EDIT_LEADS', 'DELETE_LEADS', 'MANAGE_USERS', 'SET_COMMISSION', 'PROCESS_PAYMENT'],
       'STANDARD_USER': ['CREATE_LEADS', 'EDIT_LEADS', 'READ_LEADS'],
-      'READ_ONLY': ['READ_LEADS'],
-      'COLLABORATOR': ['CREATE_LEADS', 'READ_LEADS', 'RAISE_INVOICE'],
-      'BANKER': ['CREATE_LEADS', 'READ_LEADS', 'RAISE_INVOICE']
+      'READ_ONLY': ['READ_LEADS']
+    };
+
+    // 2. Role-specific overrides (Based on the new hierarchy)
+    const rolePermissions = {
+      'CEO': ['MANAGE_USERS', 'VIEW_ORG_ANALYTICS', 'VIEW_ALL_LEADS'],
+      'REGIONAL MANAGER': ['MANAGE_USERS', 'VIEW_BRANCH_ANALYTICS', 'VIEW_BRANCH_LEADS'],
+      'SALES AGENT': ['VIEW_OWN_LEADS'],
+      'BANKER': ['VIEW_OWN_LEADS'],
+      'COLLABORATOR': ['VIEW_OWN_LEADS']
     };
     
-    // Check if user has the specific permission or if their role maps to a profile type that has it
     const profileType = profile.profile_type || 'READ_ONLY';
     const roleName = profile.roles?.name?.toUpperCase() || '';
     
-    const userPermissions = permissions[profileType] || [];
-    const rolePermissions = permissions[roleName] || [];
+    const basePerms = typePermissions[profileType] || [];
+    const extraPerms = rolePermissions[roleName] || [];
     
-    return [...userPermissions, ...rolePermissions].includes(permission);
+    const allPerms = new Set([...basePerms, ...extraPerms]);
+
+    // Implicit permissions (CEO has everything)
+    if (roleName === 'CEO') return true;
+
+    return allPerms.has(permission);
   };
 
   // Temporary helper for transition: In Supabase, accessibility is handled by RLS.

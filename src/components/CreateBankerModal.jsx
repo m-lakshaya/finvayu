@@ -8,6 +8,7 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
+    email: '',
     institution: 'HDFC Bank',
     branch: '',
     phone: '',
@@ -30,6 +31,9 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
         .select();
 
       if (error) throw error;
+      
+      alert('Banker Profile Created! Since email confirmation is disabled, you can now invite them as a user from the Supabase Dashboard to send their set-password link.');
+      
       onBankerCreated(data[0]);
       onClose();
     } catch (error) {
@@ -97,6 +101,17 @@ const CreateBankerModal = ({ isOpen, onClose, onBankerCreated }) => {
               name="branch" value={formData.branch} onChange={handleChange}
               className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
               placeholder="E.g. Mumbai Corporate Office"
+            />
+          </div>
+          {/* Email */}
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <User size={12} className="text-primary" /> Professional Email Address
+            </label>
+            <input 
+              required type="email" name="email" value={formData.email} onChange={handleChange}
+              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="E.g. banker@institution.com"
             />
           </div>
 

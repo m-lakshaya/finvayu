@@ -46,7 +46,7 @@ const LeadList = () => {
         .order('created_at', { ascending: false });
 
       const roleName = profile?.roles?.name?.toLowerCase() || '';
-      if (['collaborator', 'banker'].includes(roleName)) {
+      if (['collaborator', 'banker', 'sa', 'sales agent'].includes(roleName)) {
         query = query.eq('owner_id', profile.id);
       }
 

@@ -70,6 +70,8 @@ const Collaborators = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [stats, setStats] = useState({ total: 0, premium: 0, activeLeads: 0 });
 
+  const isSelf = ['collaborator'].includes(profile?.roles?.name?.toLowerCase());
+
   const fetchPartners = useCallback(async () => {
     if (!profile?.org_id) return;
     setLoading(true);
@@ -115,13 +117,15 @@ const Collaborators = () => {
           <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Channel Partners</h1>
           <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1">Collaborate with agencies and individuals to scale your business.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-indigo-600/20 transition-all active:scale-[0.98]"
-        >
-          <UserPlus size={18} />
-          Register Partner
-        </button>
+        {(profile?.roles?.name?.toLowerCase() === 'ceo' || profile?.roles?.name?.toLowerCase() === 'rm' || profile?.roles?.name?.toLowerCase() === 'regional manager') && (
+          <button 
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-indigo-600/20 transition-all active:scale-[0.98]"
+          >
+            <UserPlus size={18} />
+            Register Partner
+          </button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -191,6 +195,40 @@ const Collaborators = () => {
                   <td colSpan={5} className="px-6 py-20 text-center">
                     <Loader2 className="animate-spin text-indigo-600 mx-auto mb-4" size={40} />
                     <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Syncing channel partner registry...</p>
+                  </td>
+                </tr>
+              ) : isSelf ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12">
+                     <div className="flex flex-col items-center justify-center space-y-6">
+                        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+                            <div className="flex items-center gap-4 mb-6">
+                                <div className="size-12 bg-indigo-500/10 text-indigo-600 rounded-xl flex items-center justify-center font-black">
+                                    {profile.name?.[0] || 'CP'}
+                                </div>
+                                <div>
+                                    <h4 className="font-extrabold">{profile.name}</h4>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Your Partner Profile</p>
+                                </div>
+                            </div>
+                            <div className="space-y-3">
+                                <div className="flex justify-between text-xs font-bold">
+                                    <span className="text-slate-400">Assigned Leads</span>
+                                    <span>24 Active</span>
+                                </div>
+                                <div className="flex justify-between text-xs font-bold">
+                                    <span className="text-slate-400">Settlement Status</span>
+                                    <span className="text-emerald-500">Cleared</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button 
+                          onClick={() => navigate('/leads')}
+                          className="px-8 py-3 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20"
+                        >
+                          Access My Leads Vault
+                        </button>
+                     </div>
                   </td>
                 </tr>
               ) : partners.length === 0 ? (

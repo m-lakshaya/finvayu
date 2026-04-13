@@ -37,6 +37,9 @@ const CreateCollaboratorModal = ({ isOpen, onClose, onPartnerCreated }) => {
         .select();
 
       if (error) throw error;
+      
+      alert('Collaborator Profile Created! Since email confirmation is disabled, you can now invite them as a user from the Supabase Dashboard to send their set-password link.');
+      
       onPartnerCreated(data[0]);
       onClose();
     } catch (error) {
