@@ -156,9 +156,10 @@ const Dashboard = () => {
         leadsQuery = leadsQuery.eq('org_id', profile.org_id); 
       }
 
-      const [leadsRes, appsRes] = await Promise.all([
+      const [leadsRes, appsRes, tasksRes] = await Promise.all([
         leadsQuery,
-        appsQuery
+        appsQuery,
+        supabase.from('tasks').select('*, leads(name)').eq('org_id', profile.org_id).neq('status', 'Completed').order('due_date', { ascending: true, nullsFirst: false }).limit(3)
       ]);
 
       if (leadsRes.error) throw leadsRes.error;
@@ -169,7 +170,7 @@ const Dashboard = () => {
 
       // Stat Cards
       const newToday = leads.filter(l => new Date(l.created_at) >= today).length;
-      const pendingFollowups = leads.filter(l => l.follow_up_date && new Date(l.follow_up_date) <= new Date()).length;
+      const pendingFollowups = (tasksRes.data || []).filter(t => t.due_date && new Date(t.due_date) <= new Date()).length;
       const appsProgress = apps.filter(a => a.stage !== 'Completed').length;
       
       // Financial Stats
@@ -223,11 +224,8 @@ const Dashboard = () => {
       // Recent Leads (Latest 3)
       const recentLeads = [...leads].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 3);
 
-      // Upcoming Followups (Next 3)
-      const upcomingFollowups = leads
-        .filter(l => l.follow_up_date)
-        .sort((a,b) => new Date(a.follow_up_date) - new Date(b.follow_up_date))
-        .slice(0, 3);
+      // Upcoming Tasks (from tasks table)
+      const upcomingFollowups = tasksRes.data || [];
 
       setStats({
         totalLeads: leads.length,
@@ -445,11 +443,11 @@ const Dashboard = () => {
                     </tr>
                 ) : stats.upcomingFollowups.map((task, i) => (
                   <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all cursor-pointer">
-                    <td className="px-8 py-5 font-black text-slate-800 dark:text-slate-200">{task.name}</td>
+                    <td className="px-8 py-5 font-black text-slate-800 dark:text-slate-200">{task.subject}</td>
                     <td className="px-8 py-5 text-indigo-600 dark:text-indigo-400 font-black text-[10px] uppercase tracking-tighter">
-                        {new Date(task.follow_up_date).toLocaleDateString()}
+                      {task.due_date ? new Date(task.due_date).toLocaleDateString() : '—'}
                     </td>
-                    <td className="px-8 py-5 text-slate-500 font-bold text-xs truncate max-w-[150px]">{task.status} Review</td>
+                    <td className="px-8 py-5 text-slate-500 font-bold text-xs truncate max-w-[150px]">{task.type} • {task.priority}</td>
                     <td className="px-8 py-5 text-center">
                       <button className="w-10 h-10 mx-auto flex items-center justify-center bg-primary/10 text-primary rounded-xl hover:bg-primary hover:text-white transition-all shadow-sm active:scale-95">
                         <PhoneCall size={16} />

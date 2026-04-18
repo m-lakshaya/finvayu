@@ -53,6 +53,7 @@ function App() {
           <Route path="/leads" element={<ProtectedRoute><LeadList /></ProtectedRoute>} />
           <Route path="/leads/:id" element={<ProtectedRoute><LeadDetails /></ProtectedRoute>} />
           <Route path="/customers" element={<ProtectedRoute><Customers /></ProtectedRoute>} />
+          <Route path="/customers/:id" element={<ProtectedRoute><LeadDetails /></ProtectedRoute>} />
           <Route path="/follow-ups" element={<ProtectedRoute><FollowUps /></ProtectedRoute>} />
           <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
           <Route path="/loan-apps" element={<ProtectedRoute><LoanApps /></ProtectedRoute>} />
