@@ -1,148 +1,153 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import {
+  PERMISSIONS,
+  PROFILE_TYPE_PERMISSIONS,
+  ROLE_PERMISSIONS,
+} from '../config/rbac';
+
+export { PERMISSIONS };
 
 const AuthContext = createContext(null);
 
-// UI Metadata for Roles and Profiles (Matching DB IDs)
+// ─── UI metadata ──────────────────────────────────────────────────────────────
 export const PROFILES = {
-  SYSTEM_ADMIN: { name: 'System Administrator' },
-  STANDARD_USER: { name: 'Standard User' },
-  READ_ONLY: { name: 'Read Only' }
+  SYSTEM_ADMIN: { name: 'System Administrator', description: 'Full unrestricted access. Org founder / root admin.' },
+  STANDARD_USER: { name: 'Standard User', description: 'Internal employee. Access is determined by their assigned role.' },
+  READ_ONLY: { name: 'Read Only', description: 'Auditor / observer. Can view leads and loan apps only.' },
 };
 
 export const ROLES = {
-  ceo: { id: 'ceo', name: 'CEO' },
-  rm: { id: 'rm', name: 'Regional Manager' },
-  sa: { id: 'sa', name: 'Sales Agent' },
-  collaborator: { id: 'collaborator', name: 'Collaborator' },
-  banker: { id: 'banker', name: 'Banker' }
+  ceo:          { id: 'ceo',          name: 'CEO',                description: 'Chief Executive — full operational access.' },
+  rm:           { id: 'rm',           name: 'Regional Manager',   description: 'Full visibility, no admin or commission control.' },
+  sa:           { id: 'sa',           name: 'Sales Agent',        description: 'Day-to-day CRM operations.' },
+  collaborator: { id: 'collaborator', name: 'Collaborator',       description: 'External referral partner.' },
+  banker:       { id: 'banker',       name: 'Banker',             description: 'External banking partner.' },
 };
 
+// ─── AuthProvider ──────────────────────────────────────────────────────────────
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user,          setUser]          = useState(null);
+  const [profile,       setProfile]       = useState(null);
+  const [orgRolePerms,  setOrgRolePerms]  = useState(null); // DB overrides: { roleId: Set<perm> }
+  const [loading,       setLoading]       = useState(true);
+
+  // ── Fetch org-level role permission overrides ──────────────────────────────
+  const fetchOrgRolePerms = useCallback(async (orgId) => {
+    if (!orgId) return;
+    try {
+      const { data, error } = await supabase
+        .from('role_permissions')
+        .select('role_id, permissions')
+        .eq('org_id', orgId);
+      if (error) throw error;
+      if (data?.length) {
+        const map = {};
+        data.forEach(row => { map[row.role_id] = new Set(row.permissions || []); });
+        setOrgRolePerms(map);
+      }
+    } catch (_) {
+      // Table may not exist yet (pre-migration) — silently fall back to code defaults
+    }
+  }, []);
+
+  const fetchProfile = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*, roles(*)')
+        .eq('id', userId)
+        .single();
+      if (error) throw error;
+      setProfile(data);
+      await fetchOrgRolePerms(data?.org_id);
+    } catch (error) {
+      console.error('Error fetching profile:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchOrgRolePerms]);
 
   useEffect(() => {
-    // 1. Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else setLoading(false);
     });
 
-    // 2. Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
-      else {
-        setProfile(null);
-        setLoading(false);
-      }
+      else { setProfile(null); setOrgRolePerms(null); setLoading(false); }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [fetchProfile]);
 
-  const fetchProfile = async (userId) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(`
-          *,
-          roles (*)
-        `)
-        .eq('id', userId)
-        .single();
-
-      if (error) throw error;
-      setProfile(data);
-    } catch (error) {
-      console.error('Error fetching profile:', error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // ─── Permission Resolution ─────────────────────────────────────────────────
+  // Priority:
+  //   1. SYSTEM_ADMIN profile_type → always unrestricted
+  //   2. READ_ONLY profile_type    → always strictly limited
+  //   3. DB role_permissions override (org-level customisation)
+  //   4. rbac.js ROLE_PERMISSIONS  (code defaults)
+  //   5. STANDARD_USER base        (final fallback)
   const hasPermission = (permission) => {
-    if (!profile) return false;
-    
-    // 1. Root profile type permissions
-    const typePermissions = {
-      'SYSTEM_ADMIN': ['READ_ALL', 'MODIFY_ALL', 'CREATE_LEADS', 'EDIT_LEADS', 'DELETE_LEADS', 'MANAGE_USERS', 'SET_COMMISSION', 'PROCESS_PAYMENT'],
-      'STANDARD_USER': ['CREATE_LEADS', 'EDIT_LEADS', 'READ_LEADS'],
-      'READ_ONLY': ['READ_LEADS']
-    };
+    if (!profile || !permission) return !permission;
 
-    // 2. Role-specific overrides (Based on the new hierarchy)
-    const rolePermissions = {
-      'CEO': ['MANAGE_USERS', 'VIEW_ORG_ANALYTICS', 'VIEW_ALL_LEADS'],
-      'REGIONAL MANAGER': ['MANAGE_USERS', 'VIEW_BRANCH_ANALYTICS', 'VIEW_BRANCH_LEADS'],
-      'SALES AGENT': ['VIEW_OWN_LEADS'],
-      'BANKER': ['VIEW_OWN_LEADS'],
-      'COLLABORATOR': ['VIEW_OWN_LEADS']
-    };
-    
     const profileType = profile.profile_type || 'READ_ONLY';
-    const roleName = profile.roles?.name?.toUpperCase() || '';
-    
-    const basePerms = typePermissions[profileType] || [];
-    const extraPerms = rolePermissions[roleName] || [];
-    
-    const allPerms = new Set([...basePerms, ...extraPerms]);
+    const roleId      = profile.role_id?.toLowerCase() || '';
 
-    // Implicit permissions (CEO has everything)
-    if (roleName === 'CEO') return true;
+    if (profileType === 'SYSTEM_ADMIN') return true;
+    if (profileType === 'READ_ONLY') return (PROFILE_TYPE_PERMISSIONS.READ_ONLY || new Set()).has(permission);
 
-    return allPerms.has(permission);
+    // DB override takes precedence over rbac.js defaults
+    if (orgRolePerms?.[roleId]) return orgRolePerms[roleId].has(permission);
+
+    // Code defaults
+    const rolePerms = ROLE_PERMISSIONS[roleId];
+    if (rolePerms) return rolePerms.has(permission);
+
+    return (PROFILE_TYPE_PERMISSIONS.STANDARD_USER || new Set()).has(permission);
   };
 
-  // Temporary helper for transition: In Supabase, accessibility is handled by RLS.
-  // We return true if the record exists (meaning RLS allowed fetching it) or if it's mock data.
-  const isRecordAccessible = (recordId, ownerId) => {
-    if (!profile) return false;
-    if (profile.profile_type === 'SYSTEM_ADMIN') return true;
-    if (profile.id === ownerId) return true;
-    return true; // Fallback for mock data transition
+  const hasAllPermissions = (...perms) => perms.every(hasPermission);
+  const hasAnyPermission  = (...perms) => perms.some(hasPermission);
+
+  // Returns the full resolved Set for the current user (used by admin UI)
+  const getAllPermissions = () => {
+    if (!profile) return new Set();
+    const profileType = profile.profile_type || 'READ_ONLY';
+    const roleId      = profile.role_id?.toLowerCase() || '';
+    if (profileType === 'SYSTEM_ADMIN') return new Set(Object.values(PERMISSIONS));
+    if (profileType === 'READ_ONLY')    return PROFILE_TYPE_PERMISSIONS.READ_ONLY || new Set();
+    if (orgRolePerms?.[roleId])         return orgRolePerms[roleId];
+    return ROLE_PERMISSIONS[roleId] || PROFILE_TYPE_PERMISSIONS.STANDARD_USER || new Set();
   };
 
-  const login = async (email, password) => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    return data;
+  // Returns the effective permission Set for any given role (for admin UI display)
+  const getPermissionsForRole = (roleId) => {
+    if (!roleId) return new Set();
+    if (orgRolePerms?.[roleId]) return orgRolePerms[roleId];
+    return ROLE_PERMISSIONS[roleId?.toLowerCase()] || new Set();
   };
 
-  const signup = async (email, password, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: fullName }
-      }
-    });
-    if (error) throw error;
-    return data;
-  };
-
-  const logout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-  };
+  // Reload org permissions after admin saves changes
+  const refreshOrgRolePerms = () => fetchOrgRolePerms(profile?.org_id);
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      profile, 
-      loading, 
-      hasPermission, 
-      isRecordAccessible,
-      login, 
-      signup, 
-      logout 
+    <AuthContext.Provider value={{
+      user, profile, loading,
+      orgRolePerms,
+      hasPermission, hasAllPermissions, hasAnyPermission,
+      getAllPermissions, getPermissionsForRole, refreshOrgRolePerms,
     }}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
+  return ctx;
+};

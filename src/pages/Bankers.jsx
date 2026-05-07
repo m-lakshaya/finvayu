@@ -1,229 +1,177 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Building2, 
-  MapPin, 
-  Phone, 
-  ExternalLink, 
-  Search, 
-  Filter, 
-  Plus,
-  ArrowUpRight,
-  ShieldCheck,
-  Users2,
-  Loader2
-} from 'lucide-react';
+import { Building2, Phone, Mail, Search, Plus, IndianRupee, Loader2, CheckCircle2, Clock, Users2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../hooks/useAuth';
-import CreateBankerModal from '../components/CreateBankerModal';
+import { useAuth, PERMISSIONS } from '../hooks/useAuth';
+import { getDisplayName } from '../utils/profileUtils';
+import { useNavigate } from 'react-router-dom';
+import ProvisionUserModal from '../components/ProvisionUserModal';
 
-const BankerCard = ({ banker }) => (
-  <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-lg transition-all group relative overflow-hidden">
-    <div className={`absolute top-0 right-0 p-2 ${banker.status === 'Active' ? 'text-emerald-500' : 'text-slate-400'}`}>
-      <ShieldCheck size={20} />
-    </div>
-    <div className="flex items-start justify-between mb-6">
-      <div className="size-14 bg-primary/10 rounded-2xl flex items-center justify-center text-primary font-black text-xl group-hover:scale-110 transition-transform">
-        {banker.institution[0]}
+const BankerCard = ({ banker, onView }) => {
+  const initials = (banker.full_name || banker.name || 'BK').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  const commFormatted = banker.totalCommission >= 100000 ? `₹${(banker.totalCommission / 100000).toFixed(1)}L` : `₹${(banker.totalCommission || 0).toLocaleString()}`;
+
+  return (
+    <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-primary/30 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden" onClick={onView}>
+      <div className={`absolute top-4 right-4 flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold ${banker.pendingInvoices > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/20' : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20'}`}>
+        {banker.pendingInvoices > 0 ? <><Clock size={9} />{banker.pendingInvoices} Pending</> : <><CheckCircle2 size={9} />Clear</>}
       </div>
-    </div>
-    <div className="space-y-4">
-      <div>
-        <h4 className="text-lg font-extrabold text-slate-900 dark:text-slate-100 line-clamp-1">{banker.name}</h4>
-        <p className="text-xs font-bold text-primary uppercase tracking-wider line-clamp-1">{banker.institution}</p>
+      <div className="size-11 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-sm mb-4 group-hover:scale-105 transition-transform">
+        {initials}
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium">
-          <MapPin size={14} className="text-slate-400" />
-          {banker.branch || 'General Branch'}
-        </div>
-        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-medium">
-          <Phone size={14} className="text-slate-400" />
-          {banker.phone}
-        </div>
+      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">{getDisplayName(banker)}</h4>
+      <p className="text-[10px] font-semibold text-primary uppercase tracking-wider mt-0.5">{banker.roles?.name || 'Banker'}</p>
+      <div className="mt-3 space-y-1.5">
+        {banker.email && <div className="flex items-center gap-2 text-xs text-slate-500"><Mail size={11} className="text-slate-300 flex-shrink-0" /><span className="truncate">{banker.email}</span></div>}
+        {banker.phone && <div className="flex items-center gap-2 text-xs text-slate-500"><Phone size={11} className="text-slate-300 flex-shrink-0" />{banker.phone}</div>}
       </div>
-      <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none">Products</span>
-          <span className="text-sm font-bold text-slate-700 dark:text-slate-200 line-clamp-1">{banker.products || 'All Portfolio'}</span>
+      <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Leads</p>
+          <p className="text-xl font-black text-slate-900 dark:text-white">{banker.leadCount || 0}</p>
         </div>
-        <a href={`tel:${banker.phone}`} className="p-2 bg-slate-50 dark:bg-slate-800 rounded-xl hover:bg-primary hover:text-white transition-all">
-          <ExternalLink size={16} />
-        </a>
+        <div>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Commission</p>
+          <p className="text-xl font-black text-emerald-500">{commFormatted}</p>
+        </div>
       </div>
     </div>
+  );
+};
+
+const StatCard = ({ icon: Icon, label, value, color }) => (
+  <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+    <div>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
+      <h4 className={`text-2xl font-black mt-1 ${color}`}>{value}</h4>
+    </div>
+    <Icon size={22} className={`${color} opacity-20`} />
   </div>
 );
 
 const Bankers = () => {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
+  const navigate = useNavigate();
   const [bankers, setBankers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [institutionFilter, setInstitutionFilter] = useState('All Institutions');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [counts, setCounts] = useState({ banks: 0, active: 0, files: 156 });
-  
-  const isSelf = ['banker'].includes(profile?.roles?.name?.toLowerCase());
+
+  const isSelf = profile?.roles?.name?.toLowerCase() === 'banker';
+  const canManage = hasPermission(PERMISSIONS.MANAGE_USERS);
 
   const fetchBankers = useCallback(async () => {
     if (!profile?.org_id) return;
     setLoading(true);
     try {
-      let query = supabase
-        .from('bankers')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .order('name');
+      let q = supabase.from('profiles').select('*, roles(name)').eq('org_id', profile.org_id).eq('role_id', 'banker');
+      if (search) q = q.or(`full_name.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      const { data: profiles, error: pErr } = await q;
+      if (pErr) throw pErr;
+      if (!profiles?.length) { setBankers([]); setLoading(false); return; }
+      const ids = profiles.map(p => p.id);
 
-      if (search) {
-        query = query.or(`name.ilike.%${search}%,institution.ilike.%${search}%,branch.ilike.%${search}%`);
-      }
+      const { data: leadRows } = await supabase.from('leads').select('referred_by').eq('org_id', profile.org_id).in('referred_by', ids);
+      const leadCounts = (leadRows || []).reduce((acc, r) => { acc[r.referred_by] = (acc[r.referred_by] || 0) + 1; return acc; }, {});
 
-      if (institutionFilter !== 'All Institutions') {
-        query = query.eq('institution', institutionFilter);
-      }
+      const { data: invoiceRows } = await supabase.from('partner_invoices').select('partner_id, amount').eq('org_id', profile.org_id).in('partner_id', ids).in('status', ['Approved', 'Paid']);
+      const commTotals = (invoiceRows || []).reduce((acc, r) => { acc[r.partner_id] = (acc[r.partner_id] || 0) + (Number(r.amount) || 0); return acc; }, {});
 
-      const { data, error } = await query;
-      if (error) throw error;
-      
-      setBankers(data || []);
+      const { data: pendingRows } = await supabase.from('partner_invoices').select('partner_id').eq('org_id', profile.org_id).in('partner_id', ids).eq('status', 'Pending');
+      const pendingCounts = (pendingRows || []).reduce((acc, r) => { acc[r.partner_id] = (acc[r.partner_id] || 0) + 1; return acc; }, {});
 
-      // Calculate Stats
-      const uniqueBanks = new Set(data?.map(b => b.institution)).size;
-      const activeCount = data?.filter(b => b.status === 'Active').length || 0;
-      
-      setCounts(prev => ({ ...prev, banks: uniqueBanks, active: activeCount }));
-
-    } catch (error) {
-      console.error('Error fetching bankers:', error.message);
+      setBankers(profiles.map(p => ({ ...p, leadCount: leadCounts[p.id] || 0, totalCommission: commTotals[p.id] || 0, pendingInvoices: pendingCounts[p.id] || 0 })));
+    } catch (err) {
+      console.error('Bankers fetch error:', err.message);
     } finally {
       setLoading(false);
     }
-  }, [profile?.org_id, search, institutionFilter]);
+  }, [profile?.org_id, search]);
 
-  useEffect(() => {
-    fetchBankers();
-  }, [fetchBankers]);
+  useEffect(() => { fetchBankers(); }, [fetchBankers]);
 
-  const institutions = ['All Institutions', 'HDFC Bank', 'ICICI Bank', 'Axis Bank', 'SBI', 'Kotak Bank'];
+  const totalLeads  = bankers.reduce((s, b) => s + b.leadCount, 0);
+  const totalComm   = bankers.reduce((s, b) => s + b.totalCommission, 0);
+  const pendingAct  = bankers.reduce((s, b) => s + b.pendingInvoices, 0);
+  const commDisplay = totalComm >= 100000 ? `₹${(totalComm / 100000).toFixed(1)}L` : `₹${totalComm.toLocaleString()}`;
+
+  const viewBankerLeads = (banker) =>
+    navigate(`/leads?partner=${banker.id}&partnerName=${encodeURIComponent(getDisplayName(banker))}`);
+
+  if (!loading && isSelf) {
+    const myStats = bankers.find(b => b.id === profile.id);
+    const myComm = myStats?.totalCommission || 0;
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">My Partner Profile</h1>
+          <p className="text-slate-500 text-sm mt-1">Your banking partnership dashboard.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-xl">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Leads Referred</p>
+            <p className="text-4xl font-black text-primary">{myStats?.leadCount || 0}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Commission Earned</p>
+            <p className="text-4xl font-black text-emerald-500">{myComm >= 100000 ? `₹${(myComm / 100000).toFixed(1)}L` : `₹${myComm.toLocaleString()}`}</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center max-w-md">
+          <Users2 size={28} className="mx-auto mb-3 text-slate-300" />
+          <h4 className="text-base font-bold text-slate-900 dark:text-white">Your Lead Portfolio</h4>
+          <p className="text-slate-500 text-sm mt-1 mb-5">View all leads attributed to your partner profile.</p>
+          <button onClick={() => navigate(`/leads?partner=${profile.id}&partnerName=${encodeURIComponent(getDisplayName(profile))}`)} className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all">
+            View My Leads
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Banker Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1">Manage and access your point of contact at financial institutions.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Banker Partners</h1>
+          <p className="text-slate-500 text-sm mt-1">Banking partners, referred leads, and commission settlements.</p>
         </div>
-        {(profile?.roles?.name?.toLowerCase() === 'ceo' || profile?.roles?.name?.toLowerCase() === 'rm' || profile?.roles?.name?.toLowerCase() === 'regional manager') && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 bg-primary text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]"
-          >
-            <Plus size={18} />
-            Add New Banker
+        {canManage && (
+          <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]">
+            <Plus size={16} />Invite Banker
           </button>
         )}
       </div>
 
-      {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search by name, bank, or city..." 
-            className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary/20 transition-all outline-none" 
-          />
-        </div>
-        <select 
-          value={institutionFilter}
-          onChange={e => setInstitutionFilter(e.target.value)}
-          className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-primary/20 transition-all outline-none min-w-[180px]"
-        >
-          {institutions.map(inst => <option key={inst}>{inst}</option>)}
-        </select>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all">
-          <Filter size={18} />
-          Filters
-        </button>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={Building2}   label="Total Bankers"   value={bankers.length} color="text-primary" />
+        <StatCard icon={Users2}      label="Total Leads"     value={totalLeads}     color="text-violet-500" />
+        <StatCard icon={IndianRupee} label="Commission Paid" value={commDisplay}    color="text-emerald-500" />
+        <StatCard icon={Clock}       label="Pending Actions" value={pendingAct}     color="text-amber-500" />
       </div>
 
-      {/* Banker Grid */}
+      <div className="relative max-w-sm">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search bankers…" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+      </div>
+
       {loading ? (
-        <div className="py-20 text-center">
-          <Loader2 className="animate-spin text-primary mx-auto mb-4" size={40} />
-          <p className="text-slate-500 font-bold uppercase tracking-[0.2em] text-[10px]">Syncing with Financial Partners...</p>
-        </div>
-      ) : isSelf ? (
-        <div className="space-y-8">
-            <div className="max-w-xl">
-                 <BankerCard banker={{ 
-                    name: profile.name, 
-                    institution: 'Private Portfolio', 
-                    phone: profile.phone || 'N/A', 
-                    branch: 'Personal Dashboard',
-                    status: 'Active' 
-                 }} />
-            </div>
-            <div className="glass-card p-8 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-center">
-                <Users2 size={32} className="mx-auto mb-4 text-slate-300" />
-                <h4 className="text-lg font-extrabold">Your Managed Leads</h4>
-                <p className="text-slate-500 text-sm mb-6">You only have access to leads assigned to your individual profile.</p>
-                <button 
-                  onClick={() => navigate('/leads')}
-                  className="px-6 py-2 bg-primary text-white rounded-xl text-xs font-bold"
-                >
-                  View My Leads
-                </button>
-            </div>
-        </div>
+        <div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-primary" /></div>
       ) : bankers.length === 0 ? (
-        <div className="py-20 text-center glass-card rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">
-          <Building2 size={48} className="text-slate-200 dark:text-slate-800 mx-auto mb-4" />
-          <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No bankers found in this organization.</p>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="size-14 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-4"><Building2 size={24} className="text-slate-300" /></div>
+          <h4 className="text-base font-bold text-slate-900 dark:text-white">No bankers found</h4>
+          <p className="text-slate-500 text-sm mt-1 max-w-xs">{search ? 'Try a different search term.' : 'Invite your first banking partner to get started.'}</p>
+          {!search && canManage && <button onClick={() => setIsModalOpen(true)} className="mt-5 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all">Invite Banker</button>}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 min-h-[300px]">
-          {bankers.map((banker) => (
-            <BankerCard key={banker.id} banker={banker} />
-          ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {bankers.map(banker => <BankerCard key={banker.id} banker={banker} onView={() => viewBankerLeads(banker)} />)}
         </div>
       )}
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
-          <div className="relative z-10">
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Connected Banks</p>
-            <h4 className="text-3xl font-extrabold mt-1">{counts.banks}</h4>
-          </div>
-          <Building2 size={48} className="text-primary/10 absolute -right-2 -bottom-2" />
-        </div>
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
-          <div className="relative z-10">
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Active Bankers</p>
-            <h4 className="text-3xl font-extrabold mt-1 text-emerald-500">{counts.active}</h4>
-          </div>
-          <Users2 size={48} className="text-emerald-500/10 absolute -right-2 -bottom-2" />
-        </div>
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between overflow-hidden relative">
-          <div className="relative z-10">
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Active Files</p>
-            <h4 className="text-3xl font-extrabold mt-1 text-primary">{counts.files}</h4>
-          </div>
-          <ArrowUpRight size={48} className="text-primary/10 absolute -right-2 -bottom-2" />
-        </div>
-      </div>
-
-      <CreateBankerModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onBankerCreated={(newBanker) => {
-          setBankers(prev => [...prev, newBanker].sort((a,b) => a.name.localeCompare(b.name)));
-          setCounts(prev => ({ ...prev, active: prev.active + 1 }));
-        }}
+      <ProvisionUserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} defaultRole="banker"
+        onUserCreated={() => { setIsModalOpen(false); fetchBankers(); }}
+        onUserProvisioned={() => { setIsModalOpen(false); fetchBankers(); }}
       />
     </div>
   );

@@ -21,3 +21,10 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Generated / inspected schema files — may contain sensitive API responses
+schema.json
+schema_spec.json
+
+# Dev utility scripts — not part of the deployable app
+inspect_schema.js

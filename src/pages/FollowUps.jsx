@@ -134,10 +134,15 @@ const TableView = ({ events, onComplete, onDelete, search }) => {
   };
 
   const filtered = events
-    .filter((e) =>
-      !search ||
-      e.subject?.toLowerCase().includes(search.toLowerCase())
-    )
+    .filter((e) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return (
+        e.subject?.toLowerCase().includes(q) ||
+        e.leads?.name?.toLowerCase().includes(q) ||
+        e.customers?.name?.toLowerCase().includes(q)
+      );
+    })
     .sort((a, b) => {
       let av = a[sortField] ?? '';
       let bv = b[sortField] ?? '';
@@ -205,8 +210,31 @@ const TableView = ({ events, onComplete, onDelete, search }) => {
                     <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full uppercase ${statusColor(ev.status)}`}>{ev.status}</span>
                   </td>
                   <td className="px-6 py-4 text-xs font-semibold text-slate-500">
-                    {ev.lead_id && <Link to={`/leads/${ev.lead_id}`} className="text-primary hover:underline">View Lead</Link>}
-                    {ev.customer_id && <Link to={`/customers/${ev.customer_id}`} className="text-primary hover:underline">View Customer</Link>}
+                    {ev.lead_id && (
+                      <Link
+                        to={`/leads/${ev.lead_id}`}
+                        className="flex items-center gap-1.5 text-primary hover:underline font-bold"
+                      >
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                          Lead
+                        </span>
+                        {ev.leads?.name || ev.lead_id}
+                      </Link>
+                    )}
+                    {ev.customer_id && (
+                      <Link
+                        to={`/customers/${ev.customer_id}`}
+                        className="flex items-center gap-1.5 text-primary hover:underline font-bold"
+                      >
+                        <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                          Customer
+                        </span>
+                        {ev.customers?.name || ev.customer_id}
+                      </Link>
+                    )}
+                    {!ev.lead_id && !ev.customer_id && (
+                      <span className="text-slate-300 dark:text-slate-600">—</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -248,7 +276,11 @@ const FollowUps = () => {
     try {
       const { data, error } = await supabase
         .from('tasks')
-        .select('*')
+        .select(`
+          *,
+          leads      ( id, name ),
+          customers  ( id, name )
+        `)
         .eq('org_id', profile.org_id)
         .order('due_date', { ascending: true, nullsFirst: false });
 
@@ -351,7 +383,7 @@ const FollowUps = () => {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tasks by subject..."
+              placeholder="Search by subject or related lead / customer..."
               className="w-full bg-slate-50 dark:bg-slate-800/50 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
             />
           </div>

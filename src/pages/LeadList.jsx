@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Search,
   Plus,
@@ -10,6 +10,8 @@ import {
   ArrowDown,
   ArrowUpDown,
   Loader2,
+  X,
+  Handshake,
 } from 'lucide-react';
 import ExotelCallButton from '../components/ExotelCallButton';
 import CreateLeadModal from '../components/CreateLeadModal';
@@ -51,8 +53,13 @@ const SortableHeader = ({ label, field, sortField, sortAsc, onSort, className = 
 const LeadList = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { profile } = useAuth();
   const isCustomers = location.pathname.includes('customers');
+
+  // Partner filter — set when navigating from Bankers/Collaborators page
+  const partnerFilter     = searchParams.get('partner')     || '';
+  const partnerFilterName = searchParams.get('partnerName') || 'Partner';
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -129,6 +136,11 @@ const LeadList = () => {
         query = query.eq('status', statusFilter);
       }
 
+      // Partner filter — when arriving from Bankers/Collaborators page
+      if (partnerFilter && !isCustomers) {
+        query = query.eq('referred_by', partnerFilter);
+      }
+
       const { data, error, count } = await query;
       if (error) throw error;
       setLeads(data || []);
@@ -146,6 +158,7 @@ const LeadList = () => {
     sortField,
     sortAsc,
     currentPage,
+    partnerFilter,
   ]);
 
   useEffect(() => {
@@ -155,7 +168,7 @@ const LeadList = () => {
   // Reset to page 1 whenever filters/sort change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter, sortField, sortAsc, isCustomers]);
+  }, [searchTerm, statusFilter, sortField, sortAsc, isCustomers, partnerFilter]);
 
   const handleImportSuccess = async (parsedData) => {
     try {
@@ -229,6 +242,22 @@ const LeadList = () => {
           </button>
         </div>
       </div>
+
+      {/* Partner filter banner */}
+      {partnerFilter && !isCustomers && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-xl text-sm">
+          <Handshake size={15} className="text-indigo-500 flex-shrink-0" />
+          <span className="text-indigo-700 dark:text-indigo-300 font-medium flex-1">
+            Showing leads referred by <span className="font-bold">{decodeURIComponent(partnerFilterName)}</span>
+          </span>
+          <button
+            onClick={() => setSearchParams({})}
+            className="flex items-center gap-1 text-indigo-500 hover:text-indigo-700 transition-colors text-xs font-semibold"
+          >
+            <X size={13} /> Clear filter
+          </button>
+        </div>
+      )}
 
       {/* Filter & Sort Bar */}
       <div className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col lg:flex-row gap-4">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { getDisplayName } from '../utils/profileUtils';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -34,7 +35,7 @@ const Reports = () => {
       const [leadsRes, appsRes, profilesRes] = await Promise.all([
         supabase.from('leads').select('*').eq('org_id', profile.org_id),
         supabase.from('loan_applications').select('*, owner_id').eq('org_id', profile.org_id),
-        supabase.from('profiles').select('id, name')
+        supabase.from('profiles').select('id, first_name, last_name, full_name, name, email').eq('org_id', profile.org_id)
       ]);
 
       if (leadsRes.error) throw leadsRes.error;
@@ -68,7 +69,7 @@ const Reports = () => {
       const topPerformerProf = profiles.find(p => p.id === topOwnerId);
       
       const topPerformer = {
-        name: topPerformerProf?.name || 'Top Agent',
+        name: topPerformerProf ? getDisplayName(topPerformerProf) : 'Top Agent',
         count: ownerCounts[topOwnerId] || 0,
         rate: '78%' // Aggregated placeholder
       };

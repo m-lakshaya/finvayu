@@ -1,10 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
 
 @theme {
   --color-primary: #137fec;
   --color-background-light: #f6f7f8;
   --color-background-dark: #101922;
-  --font-display: "Inter", system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", "Inter", system-ui, -apple-system, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
   --radius-xl: 0.75rem;
 }
 
@@ -24,7 +26,7 @@
 
 @layer base {
   body {
-    @apply bg-background-light dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-display transition-colors duration-500;
+    @apply bg-background-light dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-body transition-colors duration-500;
   }
 }
 
@@ -32,12 +34,16 @@
   .glass-card {
     @apply backdrop-blur-2xl border shadow-2xl transition-all duration-300;
     background: var(--glass-bg);
-    border-color: var(--glass-border);
+    border-color: rgba(255, 255, 255, 0.5);
   }
   
   .dark .glass-card {
     background: var(--glass-bg-dark);
-    border-color: var(--glass-border-dark);
+    border-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-indigo-500;
   }
 
   .glass-header {

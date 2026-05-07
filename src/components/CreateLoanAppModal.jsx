@@ -61,6 +61,7 @@ const CreateLoanAppModal = ({ isOpen, onClose, onAppCreated }) => {
         .insert([{
           id: appId,
           org_id: profile.org_id,
+          owner_id: profile.id,
           lead_id: formData.lead_id,
           bank_id: formData.bank_id || null,
           amount: parseFloat(formData.amount),

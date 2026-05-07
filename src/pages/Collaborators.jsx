@@ -1,258 +1,193 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  Handshake, 
-  MapPin, 
-  Phone, 
-  Mail, 
-  TrendingUp, 
-  Search, 
-  Filter, 
-  Plus,
-  Trophy,
-  Activity,
-  UserPlus,
-  Loader2
-} from 'lucide-react';
+import { Handshake, Phone, Search, Plus, IndianRupee, Loader2, CheckCircle2, Clock, Users2, Trophy } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../hooks/useAuth';
-import CreateCollaboratorModal from '../components/CreateCollaboratorModal';
+import { useAuth, PERMISSIONS } from '../hooks/useAuth';
+import { getDisplayName } from '../utils/profileUtils';
+import { useNavigate } from 'react-router-dom';
+import ProvisionUserModal from '../components/ProvisionUserModal';
 
-const CollaboratorRow = ({ partner }) => (
-  <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all group">
-    <td className="px-6 py-5">
-      <div className="flex items-center gap-3">
-        <div className="size-10 bg-indigo-500/10 text-indigo-600 rounded-xl flex items-center justify-center font-black text-xs uppercase">
-          {partner.name?.split(' ').map(n=>n[0]).join('') || 'CP'}
-        </div>
-        <div>
-          <p className="font-extrabold text-slate-900 dark:text-slate-100 group-hover:text-primary transition-colors">{partner.name}</p>
-          <p className="text-[10px] text-slate-500 font-medium font-mono uppercase">{partner.id}</p>
-        </div>
-      </div>
-    </td>
-    <td className="px-6 py-5">
-      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 font-bold text-xs uppercase tracking-tighter">
-        <MapPin size={12} className="text-primary" />
-        {partner.city || 'National'}
-      </div>
-    </td>
-    <td className="px-6 py-5">
-      <div className="flex flex-col">
-        <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">{partner.phone}</span>
-        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">{partner.email}</span>
-      </div>
-    </td>
-    <td className="px-6 py-5">
-      <div className="flex flex-col">
-          <span className="text-xs font-black text-slate-900 dark:text-slate-100">₹{(parseFloat(partner.revenue) || 0).toLocaleString()}</span>
-          <div className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-500 uppercase tracking-tighter">
-            <TrendingUp size={10} /> +{(Math.random() * 20).toFixed(0)}% growth
+const tierBadge = (commission) => {
+  if (commission >= 500000) return { label: 'Platinum', cls: 'bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/20' };
+  if (commission >= 100000) return { label: 'Gold', cls: 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20' };
+  return { label: 'Silver', cls: 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-800' };
+};
+
+const CollaboratorRow = ({ partner, onView }) => {
+  const initials = (partner.full_name || partner.name || 'CP').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
+  const commFormatted = partner.totalCommission >= 100000 ? `₹${(partner.totalCommission / 100000).toFixed(1)}L` : `₹${(partner.totalCommission || 0).toLocaleString()}`;
+  const { label: tier, cls: tierCls } = tierBadge(partner.totalCommission);
+
+  return (
+    <tr onClick={onView} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-all cursor-pointer group border-b border-slate-100 dark:border-slate-800 last:border-0">
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="size-9 bg-violet-100 dark:bg-violet-900/30 rounded-lg flex items-center justify-center text-violet-600 font-bold text-xs flex-shrink-0">{initials}</div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 group-hover:text-primary transition-colors">{getDisplayName(partner)}</p>
+            <p className="text-[11px] text-slate-400">{partner.email}</p>
           </div>
-      </div>
-    </td>
-    <td className="px-6 py-5">
-      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter border ${
-        partner.tier === 'Platinum' ? 'bg-indigo-50 text-indigo-600 border-indigo-100 dark:bg-indigo-900/20' :
-        partner.tier === 'Gold' ? 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20' :
-        'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800'
-      }`}>
-        {partner.tier}
-      </span>
-    </td>
-  </tr>
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${tierCls}`}><Trophy size={9} />{tier}</span>
+      </td>
+      <td className="px-6 py-4 text-sm font-semibold text-slate-900 dark:text-slate-100">{partner.leadCount || 0}</td>
+      <td className="px-6 py-4 text-sm font-bold text-emerald-500">{commFormatted}</td>
+      <td className="px-6 py-4">
+        {partner.pendingInvoices > 0
+          ? <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600"><Clock size={10} />{partner.pendingInvoices} pending</span>
+          : <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-500"><CheckCircle2 size={10} />Clear</span>}
+      </td>
+      <td className="px-6 py-4 text-xs text-slate-500">{partner.phone || '—'}</td>
+    </tr>
+  );
+};
+
+const StatCard = ({ icon: Icon, label, value, color }) => (
+  <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+    <div>
+      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
+      <h4 className={`text-2xl font-black mt-1 ${color}`}>{value}</h4>
+    </div>
+    <Icon size={22} className={`${color} opacity-20`} />
+  </div>
 );
 
 const Collaborators = () => {
-  const { profile } = useAuth();
+  const { profile, hasPermission } = useAuth();
+  const navigate = useNavigate();
   const [partners, setPartners] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [stats, setStats] = useState({ total: 0, premium: 0, activeLeads: 0 });
 
-  const isSelf = ['collaborator'].includes(profile?.roles?.name?.toLowerCase());
+  const isSelf    = profile?.roles?.name?.toLowerCase() === 'collaborator';
+  const canManage = hasPermission(PERMISSIONS.MANAGE_USERS);
 
   const fetchPartners = useCallback(async () => {
     if (!profile?.org_id) return;
     setLoading(true);
     try {
-      let query = supabase
-        .from('collaborators')
-        .select('*')
-        .eq('org_id', profile.org_id)
-        .order('name');
+      let q = supabase.from('profiles').select('*, roles(name)').eq('org_id', profile.org_id).eq('role_id', 'collaborator');
+      if (search) q = q.or(`full_name.ilike.%${search}%,first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%`);
+      const { data: profiles, error: pErr } = await q;
+      if (pErr) throw pErr;
+      if (!profiles?.length) { setPartners([]); setLoading(false); return; }
+      const ids = profiles.map(p => p.id);
 
-      if (search) {
-        query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%,id.ilike.%${search}%`);
-      }
+      const { data: leadRows } = await supabase.from('leads').select('referred_by').eq('org_id', profile.org_id).in('referred_by', ids);
+      const leadCounts = (leadRows || []).reduce((acc, r) => { acc[r.referred_by] = (acc[r.referred_by] || 0) + 1; return acc; }, {});
 
-      const { data, error } = await query;
-      if (error) throw error;
-      
-      setPartners(data || []);
+      const { data: invoiceRows } = await supabase.from('partner_invoices').select('partner_id, amount').eq('org_id', profile.org_id).in('partner_id', ids).in('status', ['Approved', 'Paid']);
+      const commTotals = (invoiceRows || []).reduce((acc, r) => { acc[r.partner_id] = (acc[r.partner_id] || 0) + (Number(r.amount) || 0); return acc; }, {});
 
-      // Calculate Stats
-      const premiumCount = data?.filter(p => p.tier === 'Gold' || p.tier === 'Platinum').length || 0;
-      setStats({
-        total: data?.length || 0,
-        premium: premiumCount,
-        activeLeads: (data?.length || 0) * 8 // Mocked lead count for now
-      });
+      const { data: pendingRows } = await supabase.from('partner_invoices').select('partner_id').eq('org_id', profile.org_id).in('partner_id', ids).eq('status', 'Pending');
+      const pendingCounts = (pendingRows || []).reduce((acc, r) => { acc[r.partner_id] = (acc[r.partner_id] || 0) + 1; return acc; }, {});
 
-    } catch (error) {
-      console.error('Error fetching partners:', error.message);
+      setPartners(profiles.map(p => ({ ...p, leadCount: leadCounts[p.id] || 0, totalCommission: commTotals[p.id] || 0, pendingInvoices: pendingCounts[p.id] || 0 })));
+    } catch (err) {
+      console.error('Collaborators fetch error:', err.message);
     } finally {
       setLoading(false);
     }
   }, [profile?.org_id, search]);
 
-  useEffect(() => {
-    fetchPartners();
-  }, [fetchPartners]);
+  useEffect(() => { fetchPartners(); }, [fetchPartners]);
+
+  const totalLeads  = partners.reduce((s, p) => s + p.leadCount, 0);
+  const totalComm   = partners.reduce((s, p) => s + p.totalCommission, 0);
+  const pendingAct  = partners.reduce((s, p) => s + p.pendingInvoices, 0);
+  const commDisplay = totalComm >= 100000 ? `₹${(totalComm / 100000).toFixed(1)}L` : `₹${totalComm.toLocaleString()}`;
+
+  const viewPartnerLeads = (partner) =>
+    navigate(`/leads?partner=${partner.id}&partnerName=${encodeURIComponent(getDisplayName(partner))}`);
+
+  if (!loading && isSelf) {
+    const myStats = partners.find(p => p.id === profile.id);
+    const myComm = myStats?.totalCommission || 0;
+    return (
+      <div className="space-y-8 animate-in fade-in duration-500">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">My Partner Profile</h1>
+          <p className="text-slate-500 text-sm mt-1">Your collaboration partnership dashboard.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-xl">
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Leads Referred</p>
+            <p className="text-4xl font-black text-primary">{myStats?.leadCount || 0}</p>
+          </div>
+          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Commission Earned</p>
+            <p className="text-4xl font-black text-emerald-500">{myComm >= 100000 ? `₹${(myComm / 100000).toFixed(1)}L` : `₹${myComm.toLocaleString()}`}</p>
+          </div>
+        </div>
+        <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center max-w-md">
+          <Users2 size={28} className="mx-auto mb-3 text-slate-300" />
+          <h4 className="text-base font-bold text-slate-900 dark:text-white">Your Lead Portfolio</h4>
+          <p className="text-slate-500 text-sm mt-1 mb-5">View all leads attributed to your partner profile.</p>
+          <button onClick={() => navigate(`/leads?partner=${profile.id}&partnerName=${encodeURIComponent(getDisplayName(profile))}`)} className="px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all">
+            View My Leads
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">Channel Partners</h1>
-          <p className="text-slate-500 dark:text-slate-400 font-medium text-sm mt-1">Collaborate with agencies and individuals to scale your business.</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Collaborator Partners</h1>
+          <p className="text-slate-500 text-sm mt-1">Active collaborators, referred leads, and tier standings.</p>
         </div>
-        {(profile?.roles?.name?.toLowerCase() === 'ceo' || profile?.roles?.name?.toLowerCase() === 'rm' || profile?.roles?.name?.toLowerCase() === 'regional manager') && (
-          <button 
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:shadow-lg hover:shadow-indigo-600/20 transition-all active:scale-[0.98]"
-          >
-            <UserPlus size={18} />
-            Register Partner
+        {canManage && (
+          <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all active:scale-[0.98]">
+            <Plus size={16} />Invite Collaborator
           </button>
         )}
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-4 group cursor-pointer hover:border-indigo-500/50 transition-all">
-          <div className="size-14 rounded-2xl bg-indigo-500/10 text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center transition-all">
-            <Handshake size={28} />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Total Partners</p>
-            <h4 className="text-2xl font-black">{stats.total}</h4>
-          </div>
-        </div>
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-4 group cursor-pointer hover:border-emerald-500/50 transition-all">
-          <div className="size-14 rounded-2xl bg-emerald-500/10 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white flex items-center justify-center transition-all">
-            <Trophy size={28} />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Premium Tier</p>
-            <h4 className="text-2xl font-black">{stats.premium}</h4>
-          </div>
-        </div>
-        <div className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center gap-4 group cursor-pointer hover:border-indigo-500/50 transition-all">
-          <div className="size-14 rounded-2xl bg-indigo-500/10 text-indigo-500 group-hover:bg-indigo-500 group-hover:text-white flex items-center justify-center transition-all">
-            <Activity size={28} />
-          </div>
-          <div>
-            <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Est. Active Leads</p>
-            <h4 className="text-2xl font-black">{stats.activeLeads}</h4>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard icon={Handshake}   label="Collaborators"   value={partners.length} color="text-violet-500" />
+        <StatCard icon={Users2}      label="Total Leads"     value={totalLeads}      color="text-primary" />
+        <StatCard icon={IndianRupee} label="Commission Paid" value={commDisplay}     color="text-emerald-500" />
+        <StatCard icon={Clock}       label="Pending Actions" value={pendingAct}      color="text-amber-500" />
       </div>
 
-      {/* Filter & Table Area */}
-      <div className="glass-card rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden min-h-[400px]">
-        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center gap-4">
-          <div className="relative flex-1">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Filter by name, ID, or city..." 
-              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none" 
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl text-sm font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all border-dashed">
-            <Filter size={18} />
-            Filters
-          </button>
+      <div className="relative max-w-sm">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search collaborators…" className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-primary" /></div>
+      ) : partners.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="size-14 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mb-4"><Handshake size={24} className="text-slate-300" /></div>
+          <h4 className="text-base font-bold text-slate-900 dark:text-white">No collaborators found</h4>
+          <p className="text-slate-500 text-sm mt-1 max-w-xs">{search ? 'Try a different search.' : 'Invite your first collaborator to get started.'}</p>
+          {!search && canManage && <button onClick={() => setIsModalOpen(true)} className="mt-5 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold hover:shadow-lg hover:shadow-primary/20 transition-all">Invite Collaborator</button>}
         </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm border-separate border-spacing-0">
-            <thead className="bg-slate-50/50 dark:bg-slate-800/50 text-slate-400 font-extrabold uppercase text-[10px] tracking-[0.15em]">
+      ) : (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
               <tr>
-                <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">Partner Details</th>
-                <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">Region</th>
-                <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">Contact</th>
-                <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">Revenue (Total)</th>
-                <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">Tier Status</th>
+                {['Collaborator', 'Tier', 'Leads', 'Commission', 'Invoices', 'Phone'].map(h => (
+                  <th key={h} className="px-6 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest">{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loading ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
-                    <Loader2 className="animate-spin text-indigo-600 mx-auto mb-4" size={40} />
-                    <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">Syncing channel partner registry...</p>
-                  </td>
-                </tr>
-              ) : isSelf ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-12">
-                     <div className="flex flex-col items-center justify-center space-y-6">
-                        <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
-                            <div className="flex items-center gap-4 mb-6">
-                                <div className="size-12 bg-indigo-500/10 text-indigo-600 rounded-xl flex items-center justify-center font-black">
-                                    {profile.name?.[0] || 'CP'}
-                                </div>
-                                <div>
-                                    <h4 className="font-extrabold">{profile.name}</h4>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Your Partner Profile</p>
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                <div className="flex justify-between text-xs font-bold">
-                                    <span className="text-slate-400">Assigned Leads</span>
-                                    <span>24 Active</span>
-                                </div>
-                                <div className="flex justify-between text-xs font-bold">
-                                    <span className="text-slate-400">Settlement Status</span>
-                                    <span className="text-emerald-500">Cleared</span>
-                                </div>
-                            </div>
-                        </div>
-                        <button 
-                          onClick={() => navigate('/leads')}
-                          className="px-8 py-3 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-600/20"
-                        >
-                          Access My Leads Vault
-                        </button>
-                     </div>
-                  </td>
-                </tr>
-              ) : partners.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
-                    <Handshake size={48} className="text-slate-200 dark:text-slate-800 mx-auto mb-4" />
-                    <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No partners registered yet.</p>
-                  </td>
-                </tr>
-              ) : partners.map((partner) => (
-                <CollaboratorRow key={partner.id} partner={partner} />
-              ))}
+            <tbody>
+              {partners.map(partner => <CollaboratorRow key={partner.id} partner={partner} onView={() => viewPartnerLeads(partner)} />)}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
 
-      <CreateCollaboratorModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)}
-        onPartnerCreated={(newPartner) => {
-          setPartners(prev => [newPartner, ...prev].sort((a,b) => a.name.localeCompare(b.name)));
-          setStats(s => ({ ...s, total: s.total + 1 }));
-        }}
+      <ProvisionUserModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} defaultRole="collaborator"
+        onUserCreated={() => { setIsModalOpen(false); fetchPartners(); }}
+        onUserProvisioned={() => { setIsModalOpen(false); fetchPartners(); }}
       />
     </div>
   );

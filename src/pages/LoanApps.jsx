@@ -83,6 +83,8 @@ const LoanApps = () => {
         .range(from, to);
 
       if (stageFilter) query = query.eq('stage', stageFilter);
+      // Search by partial application ID (case-insensitive UUID prefix match)
+      if (search.trim()) query = query.ilike('id::text', `${search.trim()}%`);
 
       const { data, error, count } = await query;
       if (error) throw error;
@@ -112,7 +114,7 @@ const LoanApps = () => {
     } finally {
       setLoading(false);
     }
-  }, [profile?.org_id, stageFilter, sortField, sortAsc, currentPage]);
+  }, [profile?.org_id, search, stageFilter, sortField, sortAsc, currentPage]);
 
   useEffect(() => { fetchApplications(); }, [fetchApplications]);
   useEffect(() => { setCurrentPage(1); }, [search, stageFilter, sortField, sortAsc]);
