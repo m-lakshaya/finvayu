@@ -134,12 +134,19 @@ export const AuthProvider = ({ children }) => {
   // Reload org permissions after admin saves changes
   const refreshOrgRolePerms = () => fetchOrgRolePerms(profile?.org_id);
 
+  // Sign out
+  const logout = async () => {
+    try { await supabase.auth.signOut(); }
+    catch (e) { console.error('Logout error:', e.message); }
+  };
+
   return (
     <AuthContext.Provider value={{
       user, profile, loading,
       orgRolePerms,
       hasPermission, hasAllPermissions, hasAnyPermission,
       getAllPermissions, getPermissionsForRole, refreshOrgRolePerms,
+      logout,
     }}>
       {children}
     </AuthContext.Provider>
