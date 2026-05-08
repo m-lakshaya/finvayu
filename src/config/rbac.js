@@ -76,6 +76,11 @@ export const PERMISSIONS = Object.freeze({
 
   // ── Administration ────────────────────────────────────────────────────────
   MANAGE_USERS: 'MANAGE_USERS',
+
+  // ── Data management ───────────────────────────────────────────────────────
+  // Grants access to the global Recycle Bin page (admin-only restore of soft-deleted records).
+  // Intentionally withheld from all non-CEO roles — RMs, SAs, partners never see this.
+  VIEW_RECYCLE_BIN: 'VIEW_RECYCLE_BIN',
 });
 
 // ─── Profile Type → Base Permissions ──────────────────────────────────────────

@@ -17,10 +17,15 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  X,
+  Save,
+  ExternalLink,
+  Edit2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useSearchParams, Link } from 'react-router-dom';
+import { useNotification } from '../context/NotificationContext';
 
 const TYPE_ICONS = { Call: PhoneCall, Email: Mail, Meeting: CalendarIcon, 'To-Do': CheckSquare };
 
@@ -124,7 +129,7 @@ const CalendarView = ({ events }) => {
   );
 };
 
-const TableView = ({ events, onComplete, onDelete, search }) => {
+const TableView = ({ events, onComplete, onDelete, search, onSelect }) => {
   const [sortField, setSortField] = useState('due_date');
   const [sortAsc, setSortAsc] = useState(true);
 
@@ -179,7 +184,7 @@ const TableView = ({ events, onComplete, onDelete, search }) => {
               const TypeIcon = TYPE_ICONS[ev.type] || CheckSquare;
               const isOverdue = ev.due_date && new Date(ev.due_date) < new Date() && ev.status !== 'Completed';
               return (
-                <tr key={ev.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all group ${ev.status === 'Completed' ? 'opacity-60' : ''}`}>
+                <tr key={ev.id} onClick={() => onSelect && onSelect(ev)} className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-all cursor-pointer group ${ev.status === 'Completed' ? 'opacity-60' : ''}`}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className={`p-2 rounded-lg ${ev.status === 'Completed' ? 'bg-emerald-50 text-emerald-500' : 'bg-primary/10 text-primary'}`}>
@@ -264,28 +269,49 @@ const TableView = ({ events, onComplete, onDelete, search }) => {
 
 const FollowUps = () => {
   const { profile } = useAuth();
+  const { confirm } = useNotification();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeView = searchParams.get('view') || 'list';
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [editingTask, setEditingTask]   = useState(null);  // draft copy while editing
+  const [savingTask,  setSavingTask]    = useState(false);
 
   const fetchTasks = useCallback(async () => {
     if (!profile?.org_id) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // Try with deleted_at filter; fall back if migration 009 not run yet
+      let { data, error } = await supabase
         .from('tasks')
         .select(`
           *,
-          leads      ( id, name ),
-          customers  ( id, name )
+          leads      ( id, name, deleted_at ),
+          customers  ( id, name, deleted_at )
         `)
         .eq('org_id', profile.org_id)
+        .is('deleted_at', null)
         .order('due_date', { ascending: true, nullsFirst: false });
 
+      if (error?.message?.includes('deleted_at')) {
+        // Column doesn't exist yet — fetch without filter
+        ({ data, error } = await supabase
+          .from('tasks')
+          .select(`*, leads(id, name), customers(id, name)`)
+          .eq('org_id', profile.org_id)
+          .order('due_date', { ascending: true, nullsFirst: false }));
+      }
+
       if (error) throw error;
-      setEvents(data || []);
+      // Filter out tasks whose parent lead or customer has been soft-deleted
+      const visible = (data || []).filter(t => {
+        if (t.leads     && t.leads.deleted_at)     return false;
+        if (t.customers && t.customers.deleted_at) return false;
+        return true;
+      });
+      setEvents(visible);
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
     } finally {
@@ -311,13 +337,39 @@ const FollowUps = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this task?')) return;
+    const ok = await confirm({
+      title: 'Delete Follow-up',
+      message: 'Delete this follow-up task? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const { error } = await supabase.from('tasks').delete().eq('id', id);
       if (error) throw error;
       setEvents(prev => prev.filter(e => e.id !== id));
     } catch (error) {
       console.error('Error deleting task:', error.message);
+    }
+  };
+
+  const handleSaveTask = async () => {
+    if (!editingTask) return;
+    setSavingTask(true);
+    try {
+      const { subject, type, status, priority, due_date, notes } = editingTask;
+      const { data, error } = await supabase.from('tasks')
+        .update({ subject, type, status, priority, due_date: due_date || null, notes })
+        .eq('id', editingTask.id)
+        .select().single();
+      if (error) throw error;
+      setEvents(prev => prev.map(e => e.id === data.id ? { ...e, ...data } : e));
+      setSelectedTask({ ...selectedTask, ...data });
+      setEditingTask(null);
+    } catch (e) {
+      alert('Save failed: ' + e.message);
+    } finally {
+      setSavingTask(false);
     }
   };
 
@@ -374,35 +426,319 @@ const FollowUps = () => {
         </div>
       </div>
 
-      {/* Search (list view only) */}
+      {/* Search bar — list view only */}
       {activeView === 'list' && (
-        <div className="glass-card p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+        <div className="glass-card rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-5">
+          <div className="relative max-w-sm">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
+              placeholder="Search tasks, leads, customers…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by subject or related lead / customer..."
-              className="w-full bg-slate-50 dark:bg-slate-800/50 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary/30 font-medium placeholder:text-slate-400"
             />
           </div>
         </div>
       )}
 
-      {/* Content */}
-      <div className="relative min-h-[500px]">
-        {loading ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Loader2 className="animate-spin text-primary mb-4" size={40} />
-            <p className="text-slate-400 font-bold uppercase tracking-widest text-[10px]">Loading tasks...</p>
+      {/* Loading */}
+      {loading && (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 size={32} className="animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Views */}
+      {!loading && activeView === 'list' && (
+        <TableView
+          events={events}
+          onComplete={handleComplete}
+          onDelete={handleDelete}
+          search={search}
+          onSelect={(task) => { setSelectedTask(task); setEditingTask(null); }}
+        />
+      )}
+      {!loading && activeView === 'calendar' && <CalendarView events={events} />}
+
+      {/* ── Task Detail Slide-over ─────────────────────────────────────── */}
+      {selectedTask && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/20 z-40 animate-in fade-in duration-200"
+            onClick={() => { setSelectedTask(null); setEditingTask(null); }}
+          />
+
+          {/* Panel */}
+          <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white dark:bg-slate-900 z-50 flex flex-col animate-in slide-in-from-right duration-250 border-l border-slate-200 dark:border-slate-800">
+
+            {/* Top bar — type chip + close only */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-0">
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const TypeIcon = TYPE_ICONS[selectedTask.type] || CheckSquare;
+                  return (
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      <TypeIcon size={13} />
+                      {selectedTask.type}
+                    </span>
+                  );
+                })()}
+                {selectedTask.due_date && new Date(selectedTask.due_date) < new Date() && selectedTask.status !== 'Completed' && (
+                  <span className="text-[10px] font-bold text-red-500 bg-red-50 dark:bg-red-950/40 px-2 py-0.5 rounded-md">Overdue</span>
+                )}
+              </div>
+              <button
+                onClick={() => { setSelectedTask(null); setEditingTask(null); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Hero — title + status/priority */}
+            <div className="px-5 pt-4 pb-5 border-b border-slate-100 dark:border-slate-800">
+              {editingTask ? (
+                <input
+                  autoFocus
+                  type="text"
+                  value={editingTask.subject || ''}
+                  onChange={e => setEditingTask(p => ({ ...p, subject: e.target.value }))}
+                  className="w-full text-lg font-semibold text-slate-900 dark:text-white bg-transparent border-0 border-b-2 border-primary/40 focus:border-primary outline-none pb-1 transition-colors"
+                  placeholder="Task subject…"
+                />
+              ) : (
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-white leading-snug">
+                  {selectedTask.subject}
+                </h2>
+              )}
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-md ${statusColor(editingTask?.status || selectedTask.status)}`}>
+                  {editingTask?.status || selectedTask.status}
+                </span>
+                <span className={`text-[11px] font-semibold ${priorityColor(editingTask?.priority || selectedTask.priority)}`}>
+                  {editingTask?.priority || selectedTask.priority} Priority
+                </span>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto">
+
+              {editingTask ? (
+                /* ── Edit mode ──────────────────────────────────────────────── */
+                <div className="px-5 py-5 space-y-5">
+
+                  {/* Type / Priority */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-slate-400">Type</label>
+                      <select
+                        value={editingTask.type || 'To-Do'}
+                        onChange={e => setEditingTask(p => ({ ...p, type: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-800 dark:text-slate-200"
+                      >
+                        {['Call', 'Email', 'Meeting', 'To-Do'].map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-slate-400">Priority</label>
+                      <select
+                        value={editingTask.priority || 'Normal'}
+                        onChange={e => setEditingTask(p => ({ ...p, priority: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-800 dark:text-slate-200"
+                      >
+                        {['High', 'Normal', 'Low'].map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Status / Due date */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-slate-400">Status</label>
+                      <select
+                        value={editingTask.status || 'Open'}
+                        onChange={e => setEditingTask(p => ({ ...p, status: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-800 dark:text-slate-200"
+                      >
+                        {['Open', 'In Progress', 'Deferred', 'Completed'].map(t => <option key={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-slate-400">Due Date</label>
+                      <input
+                        type="date"
+                        value={editingTask.due_date ? editingTask.due_date.slice(0, 10) : ''}
+                        onChange={e => setEditingTask(p => ({ ...p, due_date: e.target.value || null }))}
+                        className="w-full px-3 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-800 dark:text-slate-200"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-400">Notes</label>
+                    <textarea
+                      rows={5}
+                      value={editingTask.notes || ''}
+                      onChange={e => setEditingTask(p => ({ ...p, notes: e.target.value }))}
+                      className="w-full px-3 py-2.5 text-sm border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/20 text-slate-800 dark:text-slate-200 resize-none leading-relaxed"
+                      placeholder="Add notes…"
+                    />
+                  </div>
+                </div>
+
+              ) : (
+                /* ── Read mode ──────────────────────────────────────────────── */
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+
+                  {/* Metadata rows */}
+                  <dl className="px-5 py-4 space-y-4">
+                    {/* Due date */}
+                    <div className="flex items-start gap-3">
+                      <dt className="w-24 shrink-0 text-xs font-medium text-slate-400 pt-0.5">Due Date</dt>
+                      <dd className="text-sm text-slate-800 dark:text-slate-200">
+                        {selectedTask.due_date
+                          ? new Date(selectedTask.due_date).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+                          : <span className="text-slate-400">Not set</span>}
+                      </dd>
+                    </div>
+
+                    {/* Related to */}
+                    <div className="flex items-start gap-3">
+                      <dt className="w-24 shrink-0 text-xs font-medium text-slate-400 pt-0.5">Related To</dt>
+                      <dd className="flex-1">
+                        {selectedTask.lead_id ? (
+                          <Link
+                            to={`/leads/${selectedTask.lead_id}`}
+                            onClick={() => setSelectedTask(null)}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                          >
+                            {selectedTask.leads?.name || 'View Lead'}
+                            <ExternalLink size={11} />
+                          </Link>
+                        ) : selectedTask.customer_id ? (
+                          <Link
+                            to={`/customers/${selectedTask.customer_id}`}
+                            onClick={() => setSelectedTask(null)}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                          >
+                            {selectedTask.customers?.name || 'View Customer'}
+                            <ExternalLink size={11} />
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-slate-400">—</span>
+                        )}
+                      </dd>
+                    </div>
+
+                    {/* Created */}
+                    <div className="flex items-start gap-3">
+                      <dt className="w-24 shrink-0 text-xs font-medium text-slate-400 pt-0.5">Created</dt>
+                      <dd className="text-sm text-slate-500">
+                        {selectedTask.created_at
+                          ? new Date(selectedTask.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                          : '—'}
+                      </dd>
+                    </div>
+
+                    {selectedTask.completed_at && (
+                      <div className="flex items-start gap-3">
+                        <dt className="w-24 shrink-0 text-xs font-medium text-slate-400 pt-0.5">Completed</dt>
+                        <dd className="text-sm text-emerald-600 font-medium">
+                          {new Date(selectedTask.completed_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+
+                  {/* Notes section */}
+                  <div className="px-5 py-4">
+                    <p className="text-xs font-medium text-slate-400 mb-2">Notes</p>
+                    {selectedTask.notes ? (
+                      <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
+                        {selectedTask.notes}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-slate-400">No notes added.</p>
+                    )}
+                  </div>
+
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2">
+              {editingTask ? (
+                <>
+                  <button
+                    onClick={() => setEditingTask(null)}
+                    className="flex-1 px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveTask}
+                    disabled={savingTask}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-60 transition-colors"
+                  >
+                    {savingTask ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                    Save Changes
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Destructive — far left, ghost */}
+                  <button
+                    onClick={async () => {
+                      const ok = await confirm({
+                        title: 'Delete Follow-up',
+                        message: 'Delete this follow-up task? This action cannot be undone.',
+                        confirmLabel: 'Delete',
+                        danger: true,
+                      });
+                      if (ok) { handleDelete(selectedTask.id); setSelectedTask(null); }
+                    }}
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+
+                  <div className="flex-1" />
+
+                  {/* Edit */}
+                  {selectedTask.status !== 'Completed' && (
+                    <button
+                      onClick={() => setEditingTask({ ...selectedTask })}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <Edit2 size={13} /> Edit
+                    </button>
+                  )}
+
+                  {/* Mark complete — primary CTA */}
+                  {selectedTask.status !== 'Completed' ? (
+                    <button
+                      onClick={() => { handleComplete(selectedTask.id); setSelectedTask(p => ({ ...p, status: 'Completed' })); }}
+                      className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors"
+                    >
+                      <CheckCircle2 size={13} /> Mark Complete
+                    </button>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-emerald-600">
+                      <CheckCircle2 size={13} /> Completed
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        ) : activeView === 'list' ? (
-          <TableView events={events} onComplete={handleComplete} onDelete={handleDelete} search={search} />
-        ) : (
-          <CalendarView events={events} />
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 };

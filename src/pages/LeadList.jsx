@@ -11,6 +11,7 @@ import {
   ArrowUpDown,
   Loader2,
   X,
+  Check,
   Handshake,
 } from 'lucide-react';
 import ExotelCallButton from '../components/ExotelCallButton';
@@ -18,7 +19,7 @@ import CreateLeadModal from '../components/CreateLeadModal';
 import CSVToolbar from '../components/CSVToolbar';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
-
+import { useCustomFields } from '../hooks/useCustomFields';
 const PAGE_SIZE = 10;
 // Minimum visible rows so the table never shrinks below this
 const MIN_ROWS = 10;
@@ -63,13 +64,25 @@ const LeadList = () => {
 
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('q') || '');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [sortField, setSortField] = useState('created_at');
   const [sortAsc, setSortAsc] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [exporting, setExporting] = useState(false);
+  const [notification, setNotification] = useState(null); // { message, type }
+
+  const showNotification = (message, type = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Custom field definitions — only those marked show_in_list
+  const entityType = isCustomers ? 'customer' : 'lead';
+  const { fields: customFieldDefs } = useCustomFields(profile?.org_id, entityType);
+  const listCustomFields = customFieldDefs.filter(f => f.show_in_list);
 
   const handleSortField = (field) => {
     if (field === sortField) {
@@ -113,35 +126,35 @@ const LeadList = () => {
     try {
       const from = (currentPage - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
-
-      let query = supabase
-        .from(isCustomers ? 'customers' : 'leads')
-        .select('*', { count: 'exact' })
-        .eq('org_id', profile.org_id)
-        .order(sortField, { ascending: sortAsc })
-        .range(from, to);
-
+      const table = isCustomers ? 'customers' : 'leads';
       const roleName = profile?.roles?.name?.toLowerCase() || '';
-      if (['collaborator', 'banker', 'sa', 'sales agent'].includes(roleName)) {
-        query = query.eq('owner_id', profile.id);
-      }
 
-      if (searchTerm) {
-        query = query.or(
-          `name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`
-        );
-      }
+      const buildQuery = (withSoftDelete) => {
+        let q = supabase
+          .from(table)
+          .select('*', { count: 'exact' })
+          .eq('org_id', profile.org_id)
+          .order(sortField, { ascending: sortAsc })
+          .range(from, to);
 
-      if (statusFilter) {
-        query = query.eq('status', statusFilter);
-      }
+        if (withSoftDelete) q = q.is('deleted_at', null);
 
-      // Partner filter — when arriving from Bankers/Collaborators page
-      if (partnerFilter && !isCustomers) {
-        query = query.eq('referred_by', partnerFilter);
-      }
+        if (['collaborator', 'banker', 'sa', 'sales agent'].includes(roleName)) {
+          q = q.eq('owner_id', profile.id);
+        }
+        if (searchTerm) {
+          q = q.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`);
+        }
+        if (statusFilter) q = q.eq('status', statusFilter);
+        if (partnerFilter && !isCustomers) q = q.eq('referred_by', partnerFilter);
+        return q;
+      };
 
-      const { data, error, count } = await query;
+      // Try with soft-delete filter first; fall back if column doesn't exist yet
+      let { data, error, count } = await buildQuery(true);
+      if (error && error.message?.includes('deleted_at')) {
+        ({ data, error, count } = await buildQuery(false));
+      }
       if (error) throw error;
       setLeads(data || []);
       setTotalCount(count || 0);
@@ -165,31 +178,81 @@ const LeadList = () => {
     fetchLeads();
   }, [fetchLeads]);
 
+  // Fetch ALL records for CSV export (no pagination limit)
+  const handleExportAll = async () => {
+    const table = isCustomers ? 'customers' : 'leads';
+    let { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .eq('org_id', profile.org_id)
+      .is('deleted_at', null)
+      .order(sortField, { ascending: sortAsc });
+    // Fallback if deleted_at column missing
+    if (error?.message?.includes('deleted_at')) {
+      ({ data } = await supabase
+        .from(table)
+        .select('*')
+        .eq('org_id', profile.org_id)
+        .order(sortField, { ascending: sortAsc }));
+    }
+    return data || [];
+  };
+
   // Reset to page 1 whenever filters/sort change
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, statusFilter, sortField, sortAsc, isCustomers, partnerFilter]);
 
   const handleImportSuccess = async (parsedData) => {
+    const skipped = [];
+    const valid = parsedData.filter((obj, i) => {
+      if (!obj.name?.trim()) { skipped.push(`Row ${i + 2}: missing Name`); return false; }
+      return true;
+    });
+
+    if (!valid.length) {
+      showNotification('No valid rows to import. Ensure a "Name" column is present.', 'error');
+      return;
+    }
+
     try {
-      const dataToInsert = parsedData.map((obj) => ({
-        name: obj.name || 'Unknown',
-        email: obj.email,
-        phone: obj.phone,
-        loan_type: obj.loan_type,
-        loan_amount: parseFloat(obj.loan_amount) || 0,
-        status: obj.status || 'New',
-        source: obj.source || 'Import',
-        org_id: profile.org_id,
-        owner_id: profile.id,
-      }));
-      const { error } = await supabase
-        .from('leads')
-        .insert(dataToInsert);
+      const table = isCustomers ? 'customers' : 'leads';
+      const dataToInsert = valid.map((obj) =>
+        isCustomers
+          ? {
+              name:        obj.name.trim(),
+              email:       obj.email || null,
+              phone:       obj.phone || null,
+              loan_type:   obj.loan_type || null,
+              loan_amount: parseFloat(obj.loan_amount) || 0,
+              source:      obj.source || 'Import',
+              status:      obj.status || 'Active',
+              org_id:      profile.org_id,
+              owner_id:    profile.id,
+            }
+          : {
+              name:        obj.name.trim(),
+              email:       obj.email || null,
+              phone:       obj.phone || null,
+              loan_type:   obj.loan_type || null,
+              loan_amount: parseFloat(obj.loan_amount) || 0,
+              source:      obj.source || 'Import',
+              status:      obj.status || 'New',
+              org_id:      profile.org_id,
+              owner_id:    profile.id,
+            }
+      );
+
+      const { error } = await supabase.from(table).insert(dataToInsert);
       if (error) throw error;
+
+      const msg = skipped.length
+        ? `Imported ${valid.length} records. Skipped ${skipped.length} invalid rows.`
+        : `Successfully imported ${valid.length} ${table}.`;
+      showNotification(msg, 'success');
       fetchLeads();
     } catch (error) {
-      console.error('Import error:', error);
+      showNotification('Import failed: ' + error.message, 'error');
       throw error;
     }
   };
@@ -218,6 +281,18 @@ const LeadList = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      {/* Toast notification */}
+      {notification && (
+        <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-lg border text-sm font-semibold animate-in fade-in slide-in-from-top-2 duration-300 ${
+          notification.type === 'error'
+            ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/30 dark:border-red-800 dark:text-red-400'
+            : 'bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400'
+        }`}>
+          {notification.type === 'error' ? <X size={15} /> : <Check size={15} />}
+          {notification.message}
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -227,10 +302,15 @@ const LeadList = () => {
         <div className="flex items-center gap-3">
           <CSVToolbar
             entityType={isCustomers ? 'customers' : 'leads'}
-            dataToExport={leads}
             exportHeaders={exportConfig.headers}
             exportKeys={exportConfig.keys}
+            sampleRows={isCustomers
+              ? [{ name: 'John Doe', email: 'john@example.com', phone: '9876543210', status: 'Active', loan_type: 'Home Loan', loan_amount: 5000000, source: 'Referral' }]
+              : [{ name: 'Jane Smith', email: 'jane@example.com', phone: '9123456789', loan_type: 'Business Loan', loan_amount: 2500000, status: 'New', source: 'Website' }]
+            }
+            onExportAll={handleExportAll}
             onImportSuccess={handleImportSuccess}
+            onImportError={(msg) => showNotification(msg, 'error')}
             fieldMapping={fieldMapping}
           />
           <button
@@ -301,6 +381,11 @@ const LeadList = () => {
                 <SortableHeader label="Status" field="status" sortField={sortField} sortAsc={sortAsc} onSort={handleSortField} />
                 <SortableHeader label="Score" field="score" sortField={sortField} sortAsc={sortAsc} onSort={handleSortField} className="text-center" />
                 <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 font-bold">Source</th>
+                {listCustomFields.map(f => (
+                  <th key={f.field_key} className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 font-bold whitespace-nowrap">
+                    {f.label}
+                  </th>
+                ))}
                 <SortableHeader label="Created" field="created_at" sortField={sortField} sortAsc={sortAsc} onSort={handleSortField} />
                 <th className="px-6 py-4 border-b border-slate-100 dark:border-slate-800"></th>
               </tr>
@@ -308,14 +393,14 @@ const LeadList = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan="6" className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
+                  <td colSpan={6 + listCustomFields.length} className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
                     <Loader2 className="animate-spin text-primary mx-auto mb-2" size={32} />
                     <p className="text-slate-500 font-medium">Fetching secure records...</p>
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
+                  <td colSpan={6 + listCustomFields.length} className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
                     <div className="size-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Search className="text-slate-400" size={24} />
                     </div>
@@ -363,6 +448,20 @@ const LeadList = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-semibold text-xs tracking-tight">{item.source}</td>
+                      {listCustomFields.map(f => {
+                        const val = item.custom_fields?.[f.field_key];
+                        let display = '—';
+                        if (val !== undefined && val !== null && val !== '') {
+                          if (f.field_type === 'checkbox') display = val ? '✓' : '✗';
+                          else if (f.field_type === 'date') display = new Date(val).toLocaleDateString('en-IN');
+                          else display = String(val);
+                        }
+                        return (
+                          <td key={f.field_key} className="px-6 py-4 text-slate-500 text-xs max-w-[140px] truncate">
+                            {display}
+                          </td>
+                        );
+                      })}
                       <td className="px-6 py-4 text-slate-500 font-medium text-xs">
                         {new Date(item.created_at).toLocaleDateString('en-IN', {
                           month: 'short',
@@ -391,7 +490,7 @@ const LeadList = () => {
                   {/* Ghost rows to maintain fixed table height */}
                   {Array.from({ length: emptyRowCount }).map((_, i) => (
                     <tr key={`ghost-${i}`} className="h-16 border-t border-slate-50 dark:border-slate-800/50">
-                      <td colSpan={6}></td>
+                      <td colSpan={6 + listCustomFields.length}></td>
                     </tr>
                   ))}
                 </>

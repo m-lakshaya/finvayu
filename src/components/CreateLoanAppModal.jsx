@@ -88,6 +88,14 @@ const CreateLoanAppModal = ({ isOpen, onClose, onAppCreated }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  // Loan amount: digits and single decimal point only — no type="number" to prevent e+96
+  const handleAmountChange = (e) => {
+    const raw = e.target.value.replace(/[^0-9.]/g, '');
+    const parts = raw.split('.');
+    const clean = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : raw;
+    setFormData(prev => ({ ...prev, amount: clean }));
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm px-4">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -130,9 +138,9 @@ const CreateLoanAppModal = ({ isOpen, onClose, onAppCreated }) => {
                 <DollarSign size={12} className="text-primary" /> Loan Amount (₹)
               </label>
               <input 
-                required type="number" name="amount" value={formData.amount} onChange={handleChange}
+                required inputMode="decimal" name="amount" value={formData.amount} onChange={handleAmountChange}
                 className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-4 text-sm outline-none focus:ring-2 focus:ring-primary/20"
-                placeholder="E.g. 500000"
+                placeholder="e.g. 500000  (₹5 L)"
               />
             </div>
 

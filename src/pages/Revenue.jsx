@@ -8,6 +8,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth, PERMISSIONS } from '../hooks/useAuth';
 import { getDisplayName } from '../utils/profileUtils';
+import { fmtCurrency } from '../utils/formatUtils';
 import { sendNotification } from '../hooks/useNotificationsDB';
 
 // ─── Tab constants ────────────────────────────────────────────────────────────
@@ -93,9 +94,9 @@ const Revenue = () => {
         .map(a => ({
           id:         `APP-${a.id.slice(0, 4).toUpperCase()}`,
           partner:    a.lead?.name || 'Direct Client',
-          amount:     `₹${(Number(a.amount) || 0).toLocaleString()}`,
+          amount:     fmtCurrency(Number(a.amount) || 0),
           commission: Number(a.lead?.commission_amount) > 0
-            ? `₹${Number(a.lead.commission_amount).toLocaleString()}` : '—',
+            ? fmtCurrency(Number(a.lead.commission_amount)) : '—',
           date:       new Date(a.created_at).toLocaleDateString(),
           status:     'Settled',
           type:       a.loan_type
@@ -109,7 +110,7 @@ const Revenue = () => {
         return {
           label: t,
           value: totalVolume ? Math.round((typeVolume / totalVolume) * 100) : 0,
-          amount: typeVolume >= 100000 ? `₹${(typeVolume / 100000).toFixed(1)}L` : `₹${typeVolume.toLocaleString()}`,
+          amount: fmtCurrency(typeVolume),
           color: COLORS[i % COLORS.length]
         };
       });
@@ -277,9 +278,9 @@ const Revenue = () => {
       {/* Financial Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'Total Volume',      value: data.totalRevenue >= 10000000 ? `₹${(data.totalRevenue / 10000000).toFixed(2)}Cr` : data.totalRevenue >= 100000 ? `₹${(data.totalRevenue / 100000).toFixed(2)}L` : `₹${data.totalRevenue.toLocaleString()}`, change: 'DISBURSED', icon: DollarSign,  color: 'text-primary bg-primary/10' },
-          { label: 'Net Earnings',      value: data.netCommission >= 100000 ? `₹${(data.netCommission / 100000).toFixed(2)}L` : `₹${data.netCommission.toLocaleString()}`,          change: 'PAID',     icon: TrendingUp, color: 'text-emerald-500 bg-emerald-500/10' },
-          { label: 'Pending Payout',    value: data.pendingPayouts >= 100000 ? `₹${(data.pendingPayouts / 100000).toFixed(2)}L` : `₹${data.pendingPayouts.toLocaleString()}`,        change: 'RAISED',   icon: PieChart,   color: 'text-orange-500 bg-orange-500/10' },
+          { label: 'Total Volume',      value: fmtCurrency(data.totalRevenue),   change: 'DISBURSED', icon: DollarSign,  color: 'text-primary bg-primary/10' },
+          { label: 'Net Earnings',      value: fmtCurrency(data.netCommission),  change: 'PAID',     icon: TrendingUp, color: 'text-emerald-500 bg-emerald-500/10' },
+          { label: 'Pending Payout',    value: fmtCurrency(data.pendingPayouts), change: 'RAISED',   icon: PieChart,   color: 'text-orange-500 bg-orange-500/10' },
           { label: 'Network Partners',  value: data.activePartners, change: 'Active', icon: Users, color: 'text-indigo-500 bg-indigo-500/10' },
         ].map((stat, i) => (
           <div key={i} className="glass-card p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
@@ -464,7 +465,7 @@ const Revenue = () => {
                       {/* Amount */}
                       <td className="px-6 py-4">
                         <p className="font-black text-slate-900 dark:text-white text-sm">
-                          ₹{Number(inv.amount).toLocaleString()}
+                          {fmtCurrency(Number(inv.amount))}
                         </p>
                         {inv.notes && (
                           <p className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[140px]" title={inv.notes}>
@@ -542,7 +543,7 @@ const Revenue = () => {
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white">Reject Invoice</h3>
-                <p className="text-xs text-slate-400">₹{Number(rejectModal.amount).toLocaleString()} · {getDisplayName(rejectModal.partner)}</p>
+                <p className="text-xs text-slate-400">{fmtCurrency(Number(rejectModal.amount))} · {getDisplayName(rejectModal.partner)}</p>
               </div>
             </div>
             <div className="px-6 py-5">

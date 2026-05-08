@@ -194,11 +194,8 @@ const Login = () => {
 
           {/* Footer */}
           <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800">
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Don't have an account?{' '}
-              <Link to="/signup" className="text-primary font-bold hover:underline">
-                Register your organization
-              </Link>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center">
+              Contact your administrator to get access.
             </p>
           </div>
         </div>
@@ -219,67 +216,48 @@ const Login = () => {
           }}
         />
 
-        {/* Glow blobs */}
-        <div className="absolute top-[-15%] left-[-10%] w-[60%] h-[60%] bg-primary/25 blur-[140px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-5%] w-[45%] h-[45%] bg-indigo-600/20 blur-[120px] rounded-full" />
-        <div className="absolute top-[40%] left-[30%] w-[30%] h-[30%] bg-emerald-500/10 blur-[100px] rounded-full" />
+        {/* Gradient overlays for depth */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-transparent to-violet-600/20" />
+        <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-slate-950/80 to-transparent" />
 
-        {/* Central content */}
-        <div className="relative z-10 w-full h-full flex flex-col justify-between p-14">
+        {/* Floating metric cards */}
+        {METRICS.map((m) => (
+          <MetricCard key={m.label} {...m} />
+        ))}
 
-          {/* Top: Brand */}
-          <div className="flex items-center gap-3">
-            <div className="size-10 bg-primary rounded-xl flex items-center justify-center shadow-xl shadow-primary/30">
-              <Zap size={20} className="text-white" fill="white" />
-            </div>
-            <div>
-              <p className="text-white font-black text-lg tracking-tighter leading-none">FINVAYU</p>
-              <p className="text-white/30 text-[8px] font-black uppercase tracking-[0.4em] mt-0.5">Enterprise Solution</p>
-            </div>
+        {/* Centre branding */}
+        <div className="relative z-10 text-center px-12 max-w-md">
+          <div className="inline-flex items-center gap-2.5 bg-white/5 border border-white/10 rounded-2xl px-4 py-2 mb-8 backdrop-blur-sm">
+            <ShieldCheck size={14} className="text-primary" />
+            <span className="text-[10px] font-black text-white/60 uppercase tracking-[0.2em]">Enterprise CRM</span>
           </div>
 
-          {/* Middle: Headline + floating cards */}
-          <div className="relative flex-1 flex items-center">
+          <h2 className="text-4xl font-black text-white leading-tight mb-4">
+            Close more loans,<br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-violet-400">faster.</span>
+          </h2>
 
-            {/* Headline */}
-            <div className="max-w-xs">
-              <p className="text-[11px] font-black text-primary uppercase tracking-[0.35em] mb-4">
-                Built for NBFC &amp; DSA Teams
-              </p>
-              <h3 className="text-4xl font-black text-white leading-[1.1] tracking-tighter">
-                Close more deals.<br />
-                <span className="text-primary">Move faster.</span>
-              </h3>
-              <p className="text-white/40 text-sm font-medium mt-4 leading-relaxed">
-                From lead capture to loan disbursement — manage your entire pipeline in one place.
-              </p>
-            </div>
+          <p className="text-sm text-white/40 font-medium leading-relaxed">
+            Manage your entire loan pipeline — from lead to disbursement — in one unified workspace.
+          </p>
 
-            {/* Floating metric cards */}
-            {METRICS.map((m) => (
-              <MetricCard key={m.label} {...m} />
-            ))}
-
-            {/* Decorative ring */}
-            <div className="absolute -right-8 top-1/2 -translate-y-1/2 size-96 rounded-full border border-white/5" />
-            <div className="absolute -right-4 top-1/2 -translate-y-1/2 size-72 rounded-full border border-white/[0.04]" />
-          </div>
-
-          {/* Bottom: Trust badges */}
-          <div className="flex items-center gap-6">
-            {[
-              { icon: ShieldCheck, label: '256-bit Encryption' },
-              { icon: Zap,         label: '99.9% Uptime' },
-              { icon: Users,       label: 'Multi-tenant' },
-            ].map(({ icon: Icon, label }) => (
-              <div key={label} className="flex items-center gap-2 text-white/30">
-                <Icon size={14} />
-                <span className="text-[10px] font-bold uppercase tracking-wider">{label}</span>
-              </div>
+          {/* Feature pills */}
+          <div className="flex flex-wrap justify-center gap-2 mt-8">
+            {['Pipeline Tracking', 'Partner Network', 'Commission Engine', 'Smart Reporting'].map(f => (
+              <span key={f} className="text-[10px] font-bold text-white/50 bg-white/5 border border-white/10 px-3 py-1.5 rounded-full">
+                {f}
+              </span>
             ))}
           </div>
         </div>
+
+        {/* Bottom powered-by strip */}
+        <div className="absolute bottom-6 left-0 right-0 flex items-center justify-center gap-2">
+          <Zap size={12} className="text-primary" />
+          <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Powered by Finvayu</p>
+        </div>
       </div>
+
     </div>
   );
 };

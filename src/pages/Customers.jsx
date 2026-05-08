@@ -21,7 +21,7 @@ import CreateCustomerModal from '../components/CreateCustomerModal';
 import CSVToolbar from '../components/CSVToolbar';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
-
+import { fmtCurrency } from '../utils/formatUtils';
 const PAGE_SIZE = 10;
 const MIN_ROWS = 10;
 
@@ -71,7 +71,6 @@ const Customers = () => {
   const [sortField, setSortField] = useState('created_at');
   const [sortAsc, setSortAsc] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-
   const [stats, setStats] = useState([
     { label: 'Total Accounts', value: '0', icon: Building2, color: 'text-primary bg-primary/10' },
     { label: 'Active Accounts', value: '0', icon: TrendingUp, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' },
@@ -97,39 +96,57 @@ const Customers = () => {
       const from = (currentPage - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      let query = supabase
-        .from('customers')
-        .select('*', { count: 'exact' })
-        .eq('org_id', profile.org_id)
-        .order(sortField, { ascending: sortAsc })
-        .range(from, to);
+      const buildQuery = (withSoftDelete) => {
+        let q = supabase
+          .from('customers')
+          .select('*', { count: 'exact' })
+          .eq('org_id', profile.org_id)
+          .order(sortField, { ascending: sortAsc })
+          .range(from, to);
+        if (withSoftDelete) q = q.is('deleted_at', null);
+        if (search) q = q.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+        if (statusFilter) q = q.eq('status', statusFilter);
+        return q;
+      };
 
-      if (search) {
-        query = query.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+      let { data, error, count } = await buildQuery(true);
+      // Fallback if deleted_at column doesn't exist yet (migration 009 not run)
+      if (error && error.message?.includes('deleted_at')) {
+        ({ data, error, count } = await buildQuery(false));
       }
-      if (statusFilter) {
-        query = query.eq('status', statusFilter);
-      }
-
-      const { data, error, count } = await query;
       if (error) throw error;
 
       setAccounts(data || []);
       setTotalCount(count || 0);
 
-      // Stats need full query (no pagination), fetch summary separately
-      const { data: allData } = await supabase
+      // Stats — fetch ALL non-deleted records (no pagination) for accurate tile values.
+      // Must filter deleted_at IS NULL so soft-deleted records don't pollute the numbers.
+      let statsQuery = supabase
         .from('customers')
         .select('status, loan_amount')
-        .eq('org_id', profile.org_id);
+        .eq('org_id', profile.org_id)
+        .is('deleted_at', null);
 
-      if (allData) {
-        const activeCount = allData.filter((a) => a.status === 'Active').length;
-        const totalLoan = allData.reduce((sum, a) => sum + (parseFloat(a.loan_amount) || 0), 0);
+      const { data: allData, error: statsError } = await statsQuery;
+
+      // Fallback: if deleted_at column doesn't exist yet, fetch without the filter
+      let statsData = allData;
+      if (statsError && statsError.message?.includes('deleted_at')) {
+        const { data: fallbackData } = await supabase
+          .from('customers')
+          .select('status, loan_amount')
+          .eq('org_id', profile.org_id);
+        statsData = fallbackData;
+      }
+
+      if (statsData) {
+        const totalAccounts = statsData.length;
+        const activeCount   = statsData.filter((a) => a.status === 'Active').length;
+        const totalLoan     = statsData.reduce((sum, a) => sum + (parseFloat(a.loan_amount) || 0), 0);
         setStats([
-          { label: 'Total Accounts', value: count?.toString() || '0', icon: Building2, color: 'text-primary bg-primary/10' },
+          { label: 'Total Accounts', value: totalAccounts.toString(), icon: Building2, color: 'text-primary bg-primary/10' },
           { label: 'Active Accounts', value: activeCount.toString(), icon: TrendingUp, color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-900/20' },
-          { label: 'Total Loan Book', value: `₹${(totalLoan / 10000000).toFixed(1)} Cr`, icon: DollarSign, color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/20' },
+          { label: 'Total Loan Book', value: fmtCurrency(totalLoan), icon: DollarSign, color: 'text-amber-500 bg-amber-50 dark:bg-amber-900/20' },
           { label: 'Portfolio Growth', value: 'Live', icon: Star, color: 'text-purple-500 bg-purple-50 dark:bg-purple-900/20' },
         ]);
       }
@@ -283,8 +300,7 @@ const Customers = () => {
                   </td>
                 </tr>
               ) : accounts.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
+                <tr>                  <td colSpan="6" className="px-6 text-center" style={{ height: `${MIN_ROWS * 64}px` }}>
                     <div className="size-16 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Building2 className="text-slate-400" size={24} />
                     </div>
@@ -315,7 +331,7 @@ const Customers = () => {
                         </td>
                         <td className="px-6 py-4 text-xs font-semibold text-slate-500">{acc.loan_type || '—'}</td>
                         <td className="px-6 py-4 font-extrabold text-slate-900 dark:text-slate-100 text-sm">
-                          ₹{((acc.loan_amount || 0) / 100000).toFixed(1)} L
+                          {fmtCurrency(acc.loan_amount || 0)}
                         </td>
                         <td className="px-6 py-4">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-tighter border ${statusConfig[acc.status] || 'bg-slate-50 text-slate-500 border-slate-200'}`}>
@@ -341,8 +357,6 @@ const Customers = () => {
                       </tr>
                     );
                   })}
-
-                  {/* Ghost rows for fixed height */}
                   {Array.from({ length: emptyRowCount }).map((_, i) => (
                     <tr key={`ghost-${i}`} className="h-16 border-t border-slate-50 dark:border-slate-800/50">
                       <td colSpan={6}></td>
@@ -382,8 +396,7 @@ const Customers = () => {
             ))}
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages || loading}
-              className="p-2 border border-slate-200 dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={currentPage === totalPages || loading}              className="p-2 border border-slate-200 dark:border-slate-800 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronRight size={16} />
             </button>

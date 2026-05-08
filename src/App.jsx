@@ -8,7 +8,6 @@ import Customers from './pages/Customers';
 import LeadDetails from './pages/LeadDetails';
 import UserManagement from './pages/UserManagement';
 import Login from './pages/Login';
-import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import FollowUps from './pages/FollowUps';
@@ -17,6 +16,7 @@ import LoanApps from './pages/LoanApps';
 import Bankers from './pages/Bankers';
 import Collaborators from './pages/Collaborators';
 import Revenue from './pages/Revenue';
+import RecycleBin from './pages/RecycleBin';
 import Calls from './pages/Calls';
 import Attendance from './pages/Attendance';
 import Reports from './pages/Reports';
@@ -56,7 +56,6 @@ function App() {
             <Routes>
               {/* ── Public ─────────────────────────────────────────────── */}
               <Route path="/login"           element={<Login />} />
-              <Route path="/signup"          element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password"  element={<ResetPassword />} />
 
@@ -84,6 +83,7 @@ function App() {
 
               {/* ── Admin ───────────────────────────────────────────────── */}
               <Route path="/console"      element={<ProtectedRoute permission={PERMISSIONS.MANAGE_USERS}><UserManagement /></ProtectedRoute>} />
+              <Route path="/recycle-bin"  element={<ProtectedRoute permission={PERMISSIONS.VIEW_RECYCLE_BIN}><RecycleBin /></ProtectedRoute>} />
               <Route path="/settings"     element={<ProtectedRoute><Settings /></ProtectedRoute>} />
 
               {/* ── Fallback ────────────────────────────────────────────── */}

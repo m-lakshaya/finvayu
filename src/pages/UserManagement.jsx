@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Users, Shield, UserPlus, Search, Loader2, ChevronDown,
   Check, X, Save, RefreshCw, Info, Lock, Unlock,
-  UserCog, Settings2,
+  UserCog, Settings2, SlidersHorizontal, Plus, Trash2, GripVertical, ChevronUp,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth, PERMISSIONS, ROLES, PROFILES } from '../hooks/useAuth';
 import { getDisplayName, getInitials } from '../utils/profileUtils';
 import ProvisionUserModal from '../components/ProvisionUserModal';
 import { ROLE_PERMISSIONS } from '../config/rbac';
+import { useNotification } from '../context/NotificationContext';
 
 // ── Permission catalogue (for the Roles tab UI) ───────────────────────────────
 const PERMISSION_GROUPS = [
@@ -165,13 +166,27 @@ const UsersTab = ({ orgId, currentUserId }) => {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr><td colSpan={5} className="py-16 text-center"><Loader2 size={22} className="animate-spin text-primary mx-auto" /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={5} className="py-12 text-center text-slate-400 text-sm">No users found.</td></tr>
-            ) : filtered.map(u => {
+            {loading && (
+              <tr>
+                <td colSpan={5} className="py-16 text-center">
+                  <Loader2 size={22} className="animate-spin text-primary mx-auto" />
+                </td>
+              </tr>
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr>
+                <td colSpan={5} className="py-12 text-center text-slate-400 text-sm">No users found.</td>
+              </tr>
+            )}
+            {!loading && filtered.map(u => {
               const isUpdating = updating?.startsWith(u.id);
-              const isSelf     = u.id === currentUserId;
+              const isSelf = u.id === currentUserId;
+              const profileOptions = Object.keys(PROFILES).map(k => (
+                <option key={k} value={k}>{PROFILES[k].name}</option>
+              ));
+              const roleOptions = ROLE_ORDER.map(id => (
+                <option key={id} value={id}>{ROLES[id]?.name}</option>
+              ));
               return (
                 <tr key={u.id} className="border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-5 py-4">
@@ -180,28 +195,38 @@ const UsersTab = ({ orgId, currentUserId }) => {
                         {getInitials(u)}
                       </div>
                       <div>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100">{getDisplayName(u)} {isSelf && <span className="text-[10px] text-primary font-bold">(you)</span>}</p>
+                        <p className="font-semibold text-slate-900 dark:text-slate-100">
+                          {getDisplayName(u)}{isSelf && <span className="text-[10px] text-primary font-bold ml-1">(you)</span>}
+                        </p>
                         <p className="text-[11px] text-slate-400">{u.email}</p>
                       </div>
                     </div>
                   </td>
                   <td className="px-5 py-4">
-                    {isSelf ? <ProfileTypeBadge type={u.profile_type} /> : (
-                      <select value={u.profile_type || 'STANDARD_USER'}
+                    {isSelf ? (
+                      <ProfileTypeBadge type={u.profile_type} />
+                    ) : (
+                      <select
+                        value={u.profile_type || 'STANDARD_USER'}
                         disabled={isUpdating}
                         onChange={e => handleProfileTypeChange(u.id, e.target.value)}
-                        className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary/20">
-                        {Object.entries(PROFILES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+                        className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        {profileOptions}
                       </select>
                     )}
                   </td>
                   <td className="px-5 py-4">
-                    {isSelf ? <RoleBadge roleId={u.role_id} /> : (
-                      <select value={u.role_id || 'sa'}
+                    {isSelf ? (
+                      <RoleBadge roleId={u.role_id} />
+                    ) : (
+                      <select
+                        value={u.role_id || 'sa'}
                         disabled={isUpdating}
                         onChange={e => handleRoleChange(u.id, e.target.value)}
-                        className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary/20">
-                        {ROLE_ORDER.map(id => <option key={id} value={id}>{ROLES[id]?.name}</option>)}
+                        className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        {roleOptions}
                       </select>
                     )}
                   </td>
@@ -231,6 +256,7 @@ const UsersTab = ({ orgId, currentUserId }) => {
 
 // ── Roles Tab ─────────────────────────────────────────────────────────────────
 const RolesTab = ({ orgId, currentProfileId, refreshOrgRolePerms }) => {
+  const { confirm } = useNotification();
   const [selectedRole, setSelectedRole] = useState('rm');
   const [permMap,      setPermMap]      = useState({}); // roleId → Set<perm>
   const [dbMap,        setDbMap]        = useState({}); // roleId → Set<perm> (from DB)
@@ -289,7 +315,13 @@ const RolesTab = ({ orgId, currentProfileId, refreshOrgRolePerms }) => {
   };
 
   const handleReset = async () => {
-    if (!window.confirm(`Reset ${ROLES[selectedRole]?.name} to system defaults?`)) return;
+    const ok = await confirm({
+      title: 'Reset to Defaults',
+      message: `Reset ${ROLES[selectedRole]?.name} permissions to system defaults? Any custom changes will be lost.`,
+      confirmLabel: 'Reset',
+      danger: true,
+    });
+    if (!ok) return;
     setSaving(true);
     try {
       await supabase.from('role_permissions').delete().eq('org_id', orgId).eq('role_id', selectedRole);
@@ -322,10 +354,18 @@ const RolesTab = ({ orgId, currentProfileId, refreshOrgRolePerms }) => {
             }`}>
             <div className="flex items-center justify-between">
               {ROLES[roleId]?.name}
-              {roleId === 'ceo' && <Lock size={11} className={selectedRole === roleId ? 'text-white/60' : 'text-slate-300'} />}
-              {roleId !== 'ceo' && dbMap[roleId] && <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${selectedRole === roleId ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'}`}>Custom</span>}
+              {roleId === 'ceo' && (
+                <Lock size={11} className={selectedRole === roleId ? 'text-white/60' : 'text-slate-300'} />
+              )}
+              {roleId !== 'ceo' && dbMap[roleId] && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  selectedRole === roleId ? 'bg-white/20 text-white' : 'bg-primary/10 text-primary'
+                }`}>Custom</span>
+              )}
             </div>
-            <p className={`text-[10px] mt-0.5 truncate ${selectedRole === roleId ? 'text-white/70' : 'text-slate-400'}`}>{ROLES[roleId]?.description}</p>
+            <p className={`text-[10px] mt-0.5 truncate ${
+              selectedRole === roleId ? 'text-white/70' : 'text-slate-400'
+            }`}>{ROLES[roleId]?.description}</p>
           </button>
         ))}
       </div>
@@ -487,6 +527,291 @@ const ProfilesTab = ({ orgId }) => {
   );
 };
 
+
+// ── Custom Fields Tab ─────────────────────────────────────────────────────────
+const ENTITY_TYPES = [
+  { key: 'lead',     label: 'Leads' },
+  { key: 'customer', label: 'Customers' },
+  { key: 'task',     label: 'Tasks / Follow-ups' },
+];
+
+const FIELD_TYPES = [
+  { value: 'text',     label: 'Short Text' },
+  { value: 'textarea', label: 'Long Text' },
+  { value: 'number',   label: 'Number' },
+  { value: 'date',     label: 'Date' },
+  { value: 'select',   label: 'Dropdown' },
+  { value: 'checkbox', label: 'Checkbox (Yes/No)' },
+  { value: 'phone',    label: 'Phone' },
+  { value: 'email',    label: 'Email' },
+];
+
+const toFieldKey = (label) =>
+  label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+
+const EMPTY_FIELD = { label: '', field_type: 'text', required: false, show_in_list: false, options: [] };
+
+const CustomFieldsTab = ({ orgId }) => {
+  const { confirm } = useNotification();
+  const [activeEntity, setActiveEntity] = useState('lead');
+  const [fields,  setFields]  = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(null); // field id being saved
+  const [form,    setForm]    = useState(null);  // { ...EMPTY_FIELD } when adding
+  const [optionInput, setOptionInput] = useState('');
+
+  const fetchFields = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('custom_field_definitions')
+      .select('*')
+      .eq('org_id', orgId)
+      .eq('entity_type', activeEntity)
+      .order('sort_order');
+    setFields(data || []);
+    setLoading(false);
+  }, [orgId, activeEntity]);
+
+  useEffect(() => { fetchFields(); }, [fetchFields]);
+
+  const [saveError, setSaveError] = useState(null);
+
+  const handleSave = async (def) => {
+    if (!def.label?.trim()) return;
+    setSaveError(null);
+    setSaving(def.id || 'new');
+
+    // Strip unknown keys (id is undefined for new fields — remove it)
+    const { id: _id, ...rest } = def;
+    const payload = {
+      ...rest,
+      org_id:      orgId,
+      entity_type: activeEntity,
+      field_key:   def.field_key || toFieldKey(def.label),
+      sort_order:  def.sort_order ?? fields.length,
+      options:     def.field_type === 'select' ? (def.options || []) : null,
+    };
+
+    const { error } = await supabase
+      .from('custom_field_definitions')
+      .upsert(payload, { onConflict: 'org_id,entity_type,field_key' });
+
+    if (error) {
+      setSaveError(error.message);
+    } else {
+      setForm(null);
+      setOptionInput('');
+      fetchFields();
+    }
+    setSaving(null);
+  };
+
+  const handleDelete = async (id) => {
+    const ok = await confirm({
+      title: 'Delete Custom Field',
+      message: 'Delete this custom field? All data already stored under this field will become inaccessible. This cannot be undone.',
+      confirmLabel: 'Delete Field',
+      danger: true,
+    });
+    if (!ok) return;
+    await supabase.from('custom_field_definitions').delete().eq('id', id);
+    fetchFields();
+  };
+
+  const handleMoveUp = async (f, idx) => {
+    if (idx === 0) return;
+    const prev = fields[idx - 1];
+    await Promise.all([
+      supabase.from('custom_field_definitions').update({ sort_order: prev.sort_order }).eq('id', f.id),
+      supabase.from('custom_field_definitions').update({ sort_order: f.sort_order }).eq('id', prev.id),
+    ]);
+    fetchFields();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Entity type tabs */}
+      <div className="flex gap-2 flex-wrap">
+        {ENTITY_TYPES.map(e => (
+          <button
+            key={e.key}
+            onClick={() => { setActiveEntity(e.key); setForm(null); }}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+              activeEntity === e.key
+                ? 'bg-primary text-white border-primary shadow-sm'
+                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-500 hover:text-primary'
+            }`}
+          >
+            {e.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Field list */}
+      <div className="glass-card rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+          <div>
+            <p className="font-bold text-slate-900 dark:text-white text-sm">
+              Custom Fields — {ENTITY_TYPES.find(e => e.key === activeEntity)?.label}
+            </p>
+            <p className="text-[10px] text-slate-400 mt-0.5">These fields appear in the detail view and are included in CSV exports.</p>
+          </div>
+          {!form && (
+            <button
+              onClick={() => setForm({ ...EMPTY_FIELD })}
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 transition-colors shadow-sm"
+            >
+              <Plus size={14} /> Add Field
+            </button>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={24} className="animate-spin text-primary" />
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {fields.length === 0 && !form && (
+              <div className="py-14 text-center">
+                <SlidersHorizontal size={28} className="text-slate-200 dark:text-slate-700 mx-auto mb-3" />
+                <p className="text-xs font-bold text-slate-400">No custom fields yet</p>
+                <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Click "Add Field" to create your first custom field.</p>
+              </div>
+            )}
+
+            {fields.map((f, idx) => (
+              <div key={f.id} className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group">
+                <div className="flex flex-col gap-0.5">
+                  <button onClick={() => handleMoveUp(f, idx)} disabled={idx === 0} className="text-slate-300 hover:text-primary disabled:opacity-20 transition-colors"><ChevronUp size={12} /></button>
+                  <GripVertical size={14} className="text-slate-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm text-slate-900 dark:text-white">{f.label}</p>
+                    {f.required && <span className="text-[9px] font-black bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full uppercase">Required</span>}
+                    {f.show_in_list && <span className="text-[9px] font-black bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full uppercase">In List</span>}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Key: <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">{f.field_key}</code>
+                    &nbsp;·&nbsp;{FIELD_TYPES.find(t => t.value === f.field_type)?.label || f.field_type}
+                    {f.field_type === 'select' && f.options?.length ? ` (${f.options.length} options)` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleDelete(f.id)}
+                  className="p-2 text-slate-400 hover:text-red-500 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+
+            {/* Add form */}
+            {form && (
+              <div className="px-6 py-5 bg-primary/[0.02] border-t border-primary/10 space-y-4">
+                <p className="text-xs font-black text-primary uppercase tracking-widest">New Custom Field</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Field Label *</label>
+                    <input
+                      type="text"
+                      value={form.label}
+                      onChange={e => setForm(p => ({ ...p, label: e.target.value, field_key: toFieldKey(e.target.value) }))}
+                      placeholder="e.g. Bank Name"
+                      className="w-full px-4 py-2.5 text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/30 font-medium"
+                    />
+                    {form.label && (
+                      <p className="text-[10px] text-slate-400 mt-1">Key: <code>{form.field_key || toFieldKey(form.label)}</code></p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Field Type</label>
+                    <select
+                      value={form.field_type}
+                      onChange={e => setForm(p => ({ ...p, field_type: e.target.value }))}
+                      className="w-full px-4 py-2.5 text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/30 font-medium"
+                    >
+                      {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Dropdown options builder */}
+                {form.field_type === 'select' && (
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1.5">Dropdown Options</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={optionInput}
+                        onChange={e => setOptionInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && optionInput.trim()) {
+                            setForm(p => ({ ...p, options: [...(p.options || []), optionInput.trim()] }));
+                            setOptionInput('');
+                          }
+                        }}
+                        placeholder="Type an option and press Enter"
+                        className="flex-1 px-4 py-2 text-sm border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        onClick={() => { if (optionInput.trim()) { setForm(p => ({ ...p, options: [...(p.options||[]), optionInput.trim()] })); setOptionInput(''); }}}
+                        className="px-3 py-2 bg-primary text-white rounded-xl text-xs font-bold"
+                      >Add</button>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {(form.options || []).map((opt, i) => (
+                        <span key={i} className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1 rounded-full text-xs font-bold">
+                          {opt}
+                          <button onClick={() => setForm(p => ({ ...p, options: p.options.filter((_, j) => j !== i) }))} className="text-slate-400 hover:text-red-500"><X size={10} /></button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.required} onChange={e => setForm(p => ({ ...p, required: e.target.checked }))} className="w-4 h-4 rounded accent-primary" />
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Required field</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={form.show_in_list} onChange={e => setForm(p => ({ ...p, show_in_list: e.target.checked }))} className="w-4 h-4 rounded accent-primary" />
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Show in list view</span>
+                  </label>
+                </div>
+
+                {saveError && (
+                  <div className="flex items-start gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
+                    <X size={14} className="text-red-500 mt-0.5 shrink-0" />
+                    <p className="text-xs text-red-600 dark:text-red-400">{saveError}</p>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setForm(null); setOptionInput(''); setSaveError(null); }}
+                    className="px-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  >Cancel</button>
+                  <button
+                    onClick={() => handleSave(form)}
+                    disabled={!form.label?.trim() || saving === 'new'}
+                    className="flex items-center gap-2 px-5 py-2 bg-primary text-white rounded-xl text-xs font-bold hover:bg-primary/90 disabled:opacity-60 transition-colors shadow-sm"
+                  >
+                    {saving === 'new' ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                    Save Field
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Root Component ────────────────────────────────────────────────────────────
 const UserManagement = () => {
   const { profile, refreshOrgRolePerms } = useAuth();
@@ -508,15 +833,17 @@ const UserManagement = () => {
 
       {/* Tabs */}
       <div className="flex items-center gap-8 border-b border-slate-200 dark:border-slate-800">
-        <Tab id="users"    label="Users"    icon={Users}    active={activeTab === 'users'}    onClick={setActiveTab} />
-        <Tab id="roles"    label="Roles"    icon={UserCog}  active={activeTab === 'roles'}    onClick={setActiveTab} />
+        <Tab id="users"    label="Users"    icon={Users}          active={activeTab === 'users'}    onClick={setActiveTab} />
+        <Tab id="roles"    label="Roles"    icon={UserCog}        active={activeTab === 'roles'}    onClick={setActiveTab} />
         <Tab id="profiles" label="Profiles" icon={Settings2} active={activeTab === 'profiles'} onClick={setActiveTab} />
+        <Tab id="fields"   label="Custom Fields" icon={SlidersHorizontal} active={activeTab === 'fields'}   onClick={setActiveTab} />
       </div>
 
       {/* Content */}
-      {activeTab === 'users'    && <UsersTab    orgId={profile.org_id} currentUserId={profile.id} />}
-      {activeTab === 'roles'    && <RolesTab    orgId={profile.org_id} currentProfileId={profile.id} refreshOrgRolePerms={refreshOrgRolePerms} />}
-      {activeTab === 'profiles' && <ProfilesTab orgId={profile.org_id} />}
+      {activeTab === 'users'    && <UsersTab         orgId={profile.org_id} currentUserId={profile.id} />}
+      {activeTab === 'roles'    && <RolesTab         orgId={profile.org_id} currentProfileId={profile.id} refreshOrgRolePerms={refreshOrgRolePerms} />}
+      {activeTab === 'profiles' && <ProfilesTab      orgId={profile.org_id} />}
+      {activeTab === 'fields'   && <CustomFieldsTab  orgId={profile.org_id} />}
     </div>
   );
 };

@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { getDisplayName } from '../utils/profileUtils';
+import { fmtCurrency } from '../utils/formatUtils';
 import {
   ArrowLeft, Mail, Phone, MapPin, CheckCircle2, Clock,
   Shield, Loader2, Plus, IndianRupee, PhoneCall, Calendar,
   CheckSquare, Trash2, User, ChevronDown, ArrowRight, X,
   Handshake, Receipt, ChevronRight, ExternalLink, Zap,
   Activity, StickyNote, Building2, TrendingUp, History,
-  GitCommitVertical, RefreshCw, UserCheck, ArrowRightLeft
+  GitCommitVertical, RefreshCw, UserCheck, ArrowRightLeft, SlidersHorizontal
 } from 'lucide-react';
 import { useAuth, PERMISSIONS } from '../hooks/useAuth';
 import { useNotification } from '../context/NotificationContext';
 import { supabase } from '../lib/supabase';
 import RaiseInvoiceModal from '../components/RaiseInvoiceModal';
+import { useCustomFields } from '../hooks/useCustomFields';
+import CustomFieldsSection from '../components/CustomFieldsSection';
 
 // ─── Pipeline stage definitions ───────────────────────────────────────────────
 const LEAD_STAGES = [
@@ -61,30 +64,44 @@ const timeAgo = (d) => {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-/** Clickable pipeline stage bar */
+/** Clickable pipeline stage bar — enforces forward-only progression */
 const PipelineStageBar = ({ stages, currentStatus, onStageChange, disabled }) => {
   const currentIdx = stages.findIndex(s => s.key === currentStatus);
+  // Terminal states that fully lock the bar
+  const TERMINAL = ['Converted', 'Closed', 'Disbursed'];
+  const isTerminal = TERMINAL.includes(currentStatus);
   return (
     <div className="flex items-stretch gap-0.5 bg-slate-100 dark:bg-slate-800/60 p-1 rounded-xl overflow-x-auto">
       {stages.map((stage, idx) => {
-        const isDone    = idx < currentIdx;
-        const isActive  = stage.key === currentStatus;
-        const isFuture  = idx > currentIdx;
+        const isDone      = idx < currentIdx;
+        const isActive    = stage.key === currentStatus;
+        const isFuture    = idx > currentIdx;
+        // Only the immediately next stage is clickable (one step at a time)
+        const isNextStep  = idx === currentIdx + 1;
+        const canClick    = !disabled && !isTerminal && isNextStep;
         return (
           <button
             key={stage.key}
-            onClick={() => !isActive && !disabled && onStageChange(stage.key)}
-            disabled={disabled || isActive}
-            title={isActive ? 'Current stage' : `Move to ${stage.label}`}
+            onClick={() => canClick && onStageChange(stage.key)}
+            disabled={!canClick}
+            title={
+              isActive     ? 'Current stage' :
+              isDone       ? 'Completed stage — cannot go back' :
+              isTerminal   ? 'Stage is locked' :
+              isNextStep   ? `Advance to ${stage.label}` :
+              'Complete previous stages first'
+            }
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all min-w-[72px] ${
               isActive
                 ? 'bg-primary text-white shadow-md shadow-primary/25 cursor-default'
                 : isDone
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
-                : 'text-slate-400 hover:text-primary hover:bg-white dark:hover:bg-slate-800'
-            } disabled:pointer-events-none`}
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-not-allowed opacity-70'
+                : isNextStep && !isTerminal && !disabled
+                ? 'text-slate-500 hover:text-primary hover:bg-white dark:hover:bg-slate-800 cursor-pointer'
+                : 'text-slate-300 dark:text-slate-600 cursor-not-allowed'
+            }`}
           >
-            {isDone  && <CheckCircle2 size={11} />}
+            {isDone   && <CheckCircle2 size={11} />}
             {isActive && <Zap size={11} />}
             {stage.label}
           </button>
@@ -133,6 +150,8 @@ const LeadDetails = () => {
   const { showNotification, confirm } = useNotification();
 
   const isCustomerRecord = location.pathname.includes('customers');
+  const entityType = isCustomerRecord ? 'customer' : 'lead';
+  const { fields: customFieldDefs } = useCustomFields(profile?.org_id, entityType);
   const recordType       = isCustomerRecord ? 'Customer' : 'Lead';
   const table            = isCustomerRecord ? 'customers' : 'leads';
   const stages           = isCustomerRecord ? CUSTOMER_STAGES : LEAD_STAGES;
@@ -189,9 +208,19 @@ const LeadDetails = () => {
     if (!id) return;
     setTasksLoading(true);
     const col = isCustomerRecord ? 'customer_id' : 'lead_id';
-    supabase.from('tasks').select('*').eq(col, id)
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .then(({ data }) => { setTasks(data || []); setTasksLoading(false); });
+    // Try with deleted_at filter; fall back if column missing (migration 009 not run)
+    const run = async () => {
+      let { data, error } = await supabase.from('tasks').select('*')
+        .eq(col, id).is('deleted_at', null)
+        .order('due_date', { ascending: true, nullsFirst: false });
+      if (error?.message?.includes('deleted_at')) {
+        ({ data } = await supabase.from('tasks').select('*')
+          .eq(col, id).order('due_date', { ascending: true, nullsFirst: false }));
+      }
+      setTasks(data || []);
+      setTasksLoading(false);
+    };
+    run();
   };
   useEffect(fetchTasks, [id, isCustomerRecord]);
 
@@ -279,14 +308,18 @@ const LeadDetails = () => {
   const handleUpdateRecord = async (updates) => {
     setUpdating(true);
     try {
-      // Enrich with audit fields
-      const enriched = {
-        ...updates,
+      // Merge custom_fields patch into existing JSONB (don't overwrite other keys)
+      const enriched = updates.custom_fields
+        ? { ...updates, custom_fields: { ...(record?.custom_fields || {}), ...updates.custom_fields } }
+        : updates;
+
+      const payload = {
+        ...enriched,
         modified_by: profile?.id,
         modified_at: new Date().toISOString(),
       };
 
-      const { data, error } = await supabase.from(table).update(enriched).eq('id', id).select().single();
+      const { data, error } = await supabase.from(table).update(payload).eq('id', id).select().single();
       if (error) throw error;
       setRecord(data);
 
@@ -331,37 +364,82 @@ const LeadDetails = () => {
   };
 
   const handleConvertToCustomer = async () => {
+    // ── Validation: required fields must be present before conversion ──────
+    const missing = [];
+    if (!record.name?.trim())         missing.push('Full Name');
+    if (!record.phone?.trim())        missing.push('Phone');
+    if (!record.loan_amount)          missing.push('Loan Amount');
+    if (!record.loan_type?.trim())    missing.push('Loan Type');
+    if (missing.length) {
+      showNotification(
+        `Cannot convert — fill in: ${missing.join(', ')}`,
+        'error'
+      );
+      return;
+    }
+
+    // ── Duplicate email check ───────────────────────────────────────────────
+    if (record.email) {
+      const { data: dup } = await supabase
+        .from('customers')
+        .select('id, name')
+        .eq('org_id', record.org_id)
+        .eq('email', record.email)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (dup) {
+        showNotification(
+          `A customer with this email already exists: ${dup.name}`,
+          'error'
+        );
+        return;
+      }
+    }
+
     const ok = await confirm({
-      message: 'Convert this lead to a Customer? A customer account will be created and this lead will be archived as Converted.',
+      message: `Convert "${record.name}" to a Customer account? Tasks and follow-ups will be linked to the new customer. The lead will be archived as Converted.`,
       confirmLabel: 'Convert to Customer'
     });
     if (!ok) return;
+
     setUpdating(true);
     try {
+      // Create customer record — carry over all standard fields + custom field values.
+      // Custom field data (JSONB) is copied so any field_key that exists in both
+      // lead and customer entity type definitions renders immediately on the new customer.
       const { data: cust, error: cErr } = await supabase.from('customers').insert([{
-        name:        record.name,
-        email:       record.email,
-        phone:       record.phone,
-        address:     record.address,
-        org_id:      record.org_id,
-        owner_id:    record.owner_id,
-        loan_type:   record.loan_type,
-        loan_amount: record.loan_amount,
-        source:      record.source,
-        status:      'Active',
-        lead_id:     record.id,       // back-reference to the originating lead
+        name:          record.name,
+        email:         record.email,
+        phone:         record.phone,
+        address:       record.address,
+        org_id:        record.org_id,
+        owner_id:      record.owner_id,
+        loan_type:     record.loan_type,
+        loan_amount:   record.loan_amount,
+        source:        record.source,
+        referred_by:   record.referred_by,
+        status:        'Active',
+        lead_id:       record.id,
+        custom_fields: record.custom_fields || {},   // ← carry over custom field values
       }]).select().single();
       if (cErr) throw cErr;
 
-      // Archive lead with customer_id stored
+      // Archive lead — store customer_id FK, mark Converted
       await supabase.from('leads').update({
-        status: 'Converted',
+        status:      'Converted',
         customer_id: cust.id,
         modified_by: profile?.id,
         modified_at: new Date().toISOString(),
       }).eq('id', id);
 
-      // Log conversion activity
+      // Reparent open tasks/follow-ups from lead → customer
+      await supabase.from('tasks')
+        .update({ customer_id: cust.id })
+        .eq('lead_id', id)
+        .neq('status', 'Completed')
+        .is('deleted_at', null);
+
+      // Activity log
       await supabase.from('activity_log').insert([{
         org_id:      record.org_id,
         record_id:   id,
@@ -424,19 +502,49 @@ const LeadDetails = () => {
   };
 
   const handleDeleteRecord = async () => {
+    // Guard: Converted lead — must delete the customer first
+    if (!isCustomerRecord && record.status === 'Converted' && record.customer_id) {
+      showNotification(
+        'This lead is linked to an active customer. Open the Customer record and delete it first — the lead will be archived automatically.',
+        'error'
+      );
+      return;
+    }
+
+    const cascadeMsg = isCustomerRecord && record.lead_id
+      ? 'Move this customer AND its linked converted lead to the Recycle Bin? You can restore both from the respective pages.'
+      : isCustomerRecord
+        ? 'Move this customer to the Recycle Bin? You can restore it from the Customers page.'
+        : 'Move this lead to the Recycle Bin? You can restore it from the Leads page.';
+
     const ok = await confirm({
-      message: isCustomerRecord
-        ? 'Permanently delete this customer account?'
-        : 'Delete this lead? All activity history will be removed.',
-      confirmLabel: 'Delete Permanently',
+      message: cascadeMsg,
+      confirmLabel: 'Move to Recycle Bin',
       danger: true,
     });
     if (!ok) return;
     setUpdating(true);
     try {
-      const { error } = await supabase.from(table).delete().eq('id', id);
+      const now = new Date().toISOString();
+      const softDelete = { deleted_at: now, deleted_by: profile?.id };
+
+      // Soft-delete the primary record
+      const { error } = await supabase.from(table).update(softDelete).eq('id', id);
       if (error) throw error;
-      showNotification(`${recordType} deleted`, 'success');
+
+      if (isCustomerRecord) {
+        // Cascade: soft-delete the linked converted lead (if any)
+        if (record.lead_id) {
+          await supabase.from('leads').update(softDelete).eq('id', record.lead_id);
+        }
+        // Cascade: soft-delete all open tasks linked to this customer
+        await supabase.from('tasks')
+          .update(softDelete)
+          .eq('customer_id', id)
+          .neq('status', 'Completed');
+      }
+
+      showNotification(`${recordType} moved to Recycle Bin`, 'info');
       navigate(isCustomerRecord ? '/customers' : '/leads');
     } catch (err) {
       showNotification('Delete failed: ' + err.message, 'error');
@@ -457,6 +565,38 @@ const LeadDetails = () => {
       <Shield size={40} className="text-red-400" />
       <h2 className="text-2xl font-bold">Record Not Found</h2>
       <button onClick={() => navigate(-1)} className="px-6 py-2 bg-primary text-white rounded-xl text-sm font-bold">Go Back</button>
+    </div>
+  );
+
+  // Deleted record — show recycle bin state instead of full detail
+  if (record.deleted_at) return (
+    <div className="flex flex-col items-center justify-center h-[60vh] gap-4 text-center">
+      <div className="size-20 rounded-3xl bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+        <Trash2 size={36} className="text-red-400" />
+      </div>
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{record.name}</h2>
+        <p className="text-slate-500 mt-1">This {isCustomerRecord ? 'customer' : 'lead'} is in the Recycle Bin.</p>
+        <p className="text-xs text-slate-400 mt-1">Deleted {new Date(record.deleted_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</p>
+      </div>
+      <div className="flex gap-3">
+        <button
+          onClick={() => navigate(isCustomerRecord ? '/customers' : '/leads')}
+          className="px-5 py-2.5 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >
+          ← Back to {isCustomerRecord ? 'Customers' : 'Leads'}
+        </button>
+        <button
+          onClick={async () => {
+            const { error } = await supabase.from(table).update({ deleted_at: null, deleted_by: null }).eq('id', id);
+            if (!error) { window.location.reload(); }
+            else alert('Restore failed: ' + error.message);
+          }}
+          className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
+        >
+          <RefreshCw size={14} /> Restore Record
+        </button>
+      </div>
     </div>
   );
 
@@ -515,12 +655,18 @@ const LeadDetails = () => {
           </div>
         </div>
 
-        {/* Pipeline stage bar */}
+        {/* Pipeline stage bar — Converted intercepts to trigger full conversion flow */}
         <PipelineStageBar
           stages={stages}
           currentStatus={record.status}
           disabled={isConverted || updating}
-          onStageChange={(newStatus) => handleUpdateRecord({ status: newStatus })}
+          onStageChange={(newStatus) => {
+            if (!isCustomerRecord && newStatus === 'Converted') {
+              handleConvertToCustomer();
+            } else {
+              handleUpdateRecord({ status: newStatus });
+            }
+          }}
         />
       </div>
 
@@ -588,7 +734,7 @@ const LeadDetails = () => {
           <div className="text-center">
             <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Loan Ask</p>
             <p className="text-lg font-black text-slate-900 dark:text-white mt-0.5">
-              {record.loan_amount ? `₹${record.loan_amount.toLocaleString()}` : '—'}
+              {record.loan_amount ? fmtCurrency(record.loan_amount) : '—'}
             </p>
           </div>
           <div className="h-10 w-px bg-slate-100 dark:bg-slate-800" />
@@ -697,6 +843,19 @@ const LeadDetails = () => {
                   </InfoField>
                 </div>
               </div>
+
+              {/* ── Custom Fields ──────────────────────────────────────────── */}
+              {customFieldDefs.length > 0 && (
+                <div className="px-6 py-5 border-t border-slate-100 dark:border-slate-800">
+                  <CustomFieldsSection
+                    fields={customFieldDefs}
+                    values={record.custom_fields || {}}
+                    editMode={!isConverted && !leadClosed}
+                    disabled={isConverted || leadClosed}
+                    onChange={(key, val) => handleUpdateRecord({ custom_fields: { [key]: val } })}
+                  />
+                </div>
+              )}
 
             </div>
           )}
@@ -914,7 +1073,7 @@ const LeadDetails = () => {
                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">Loan Request</p>
                 <div className="flex items-baseline gap-2">
                   <p className="text-3xl font-black tabular-nums">
-                    ₹{(record.loan_amount || 0).toLocaleString()}
+                    {fmtCurrency(record.loan_amount || 0)}
                   </p>
                   <span className="text-[10px] font-black text-primary bg-primary/10 px-2 py-0.5 rounded uppercase">
                     {record.loan_type || 'General'}
@@ -941,9 +1100,14 @@ const LeadDetails = () => {
                     <div>
                       <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1 block">Amount (₹)</label>
                       <input
-                        type="number" min="0"
+                        inputMode="decimal"
                         value={record.commission_amount || ''}
-                        onChange={e => handleUpdateRecord({ commission_amount: parseFloat(e.target.value) || 0 })}
+                        onChange={e => {
+                          const raw = e.target.value.replace(/[^0-9.]/g, '');
+                          const parts = raw.split('.');
+                          const clean = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : raw;
+                          handleUpdateRecord({ commission_amount: parseFloat(clean) || 0 });
+                        }}
                         disabled={isConverted}
                         className="bg-slate-800/50 border border-slate-700 rounded-xl px-3 py-2 text-sm font-black w-full focus:ring-1 focus:ring-primary outline-none disabled:opacity-50"
                       />
@@ -958,7 +1122,7 @@ const LeadDetails = () => {
                     <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
                       <p className="text-[8px] font-black text-emerald-500/60 uppercase tracking-widest mb-1">Earnings</p>
                       <p className="text-lg font-black text-emerald-400">
-                        ₹{(record.commission_amount || 0).toLocaleString()}
+                        {fmtCurrency(record.commission_amount || 0)}
                       </p>
                     </div>
                   </div>

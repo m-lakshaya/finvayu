@@ -36,6 +36,7 @@ import {
   UserCheck,
   BarChart3,
   ShieldAlert,
+  Trash2,
 } from 'lucide-react';
 
 import { PERMISSIONS } from './rbac';
@@ -152,6 +153,13 @@ export const NAV_GROUPS = [
         icon: ShieldAlert,
         path: '/console',
         permission: PERMISSIONS.MANAGE_USERS,
+      },
+      {
+        id: 'recycle-bin',
+        name: 'Recycle Bin',
+        icon: Trash2,
+        path: '/recycle-bin',
+        permission: PERMISSIONS.VIEW_RECYCLE_BIN,
       },
     ],
   },

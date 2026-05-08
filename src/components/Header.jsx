@@ -1,13 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Search, Bell, ChevronDown, Menu, Sun, Moon,
   User, Settings, LogOut, CheckCheck,
-  Receipt, AlertCircle, X
+  Receipt, AlertCircle, X, Loader2,
+  Users, TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getDisplayName } from '../utils/profileUtils';
 import { useNotificationsDB } from '../hooks/useNotificationsDB';
+import { supabase } from '../lib/supabase';
 
 // ─── Notification type → icon/colour/destination ──────────────────────────────
 const notifConfig = (type) => {
@@ -30,16 +32,33 @@ const timeAgo = (dateStr) => {
   return `${d}d ago`;
 };
 
+const LEAD_STATUS_COLORS = {
+  New:        'bg-blue-100 text-blue-700',
+  Contacted:  'bg-indigo-100 text-indigo-700',
+  Qualified:  'bg-violet-100 text-violet-700',
+  Proposal:   'bg-amber-100 text-amber-700',
+  Negotiation:'bg-orange-100 text-orange-700',
+  Converted:  'bg-emerald-100 text-emerald-700',
+  Closed:     'bg-slate-100 text-slate-500',
+  Disbursed:  'bg-teal-100 text-teal-700',
+};
+
 // ─── Header ───────────────────────────────────────────────────────────────────
 const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
   const { profile, logout } = useAuth();
-  const navigate   = useNavigate();
-  const location   = useLocation();
-  const profileRef = useRef(null);
-  const notifRef   = useRef(null);
+  const navigate    = useNavigate();
+  const location    = useLocation();
+  const profileRef  = useRef(null);
+  const notifRef    = useRef(null);
+  const searchRef   = useRef(null);
+  const debounceRef = useRef(null);
 
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNotifOpen,   setIsNotifOpen]   = useState(false);
+  const [isProfileOpen,  setIsProfileOpen]  = useState(false);
+  const [isNotifOpen,    setIsNotifOpen]    = useState(false);
+  const [searchQuery,    setSearchQuery]    = useState('');
+  const [searchResults,  setSearchResults]  = useState({ leads: [], customers: [] });
+  const [searchLoading,  setSearchLoading]  = useState(false);
+  const [searchOpen,     setSearchOpen]     = useState(false);
 
   const { notifications, unreadCount, markAsRead, markAllRead } = useNotificationsDB();
 
@@ -47,15 +66,92 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
   const roleName = profile?.roles?.name || 'User';
   const userName = getDisplayName(profile);
 
+  // ── Global search ──────────────────────────────────────────────────────────
+  const runSearch = useCallback(async (q) => {
+    if (!q || q.trim().length < 2 || !profile?.org_id) {
+      setSearchResults({ leads: [], customers: [] });
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const term = `%${q.trim()}%`;
+
+      const searchTable = async (table, cols) => {
+        const base = supabase.from(table).select(cols)
+          .eq('org_id', profile.org_id)
+          .or(`name.ilike.${term},phone.ilike.${term},email.ilike.${term}`)
+          .order('created_at', { ascending: false })
+          .limit(table === 'leads' ? 6 : 4);
+        // Try with soft-delete filter; fall back if column missing (migration 009 not run)
+        let res = await base.is('deleted_at', null);
+        if (res.error?.message?.includes('deleted_at')) {
+          res = await base;
+        }
+        return res.data || [];
+      };
+
+      const [leads, customers] = await Promise.all([
+        searchTable('leads',     'id, name, phone, email, status, loan_type'),
+        searchTable('customers', 'id, name, phone, email'),
+      ]);
+      setSearchResults({ leads, customers });
+    } catch (_) {
+      setSearchResults({ leads: [], customers: [] });
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [profile?.org_id]);
+
+  const handleSearchChange = (e) => {
+    const val = e.target.value;
+    setSearchQuery(val);
+    setSearchOpen(true);
+    clearTimeout(debounceRef.current);
+    if (!val.trim() || val.trim().length < 2) {
+      setSearchResults({ leads: [], customers: [] });
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    debounceRef.current = setTimeout(() => runSearch(val), 300);
+  };
+
+  const handleResultClick = (path) => {
+    setSearchQuery('');
+    setSearchOpen(false);
+    setSearchResults({ leads: [], customers: [] });
+    navigate(path);
+  };
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Escape') { setSearchOpen(false); setSearchQuery(''); }
+    if (e.key === 'Enter' && searchQuery.trim()) {
+      setSearchOpen(false);
+      navigate(`/leads?q=${encodeURIComponent(searchQuery.trim())}`);
+      setSearchQuery('');
+    }
+  };
+
+  const totalResults = searchResults.leads.length + searchResults.customers.length;
+  const hasResults   = totalResults > 0;
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e) => {
       if (profileRef.current && !profileRef.current.contains(e.target)) setIsProfileOpen(false);
       if (notifRef.current   && !notifRef.current.contains(e.target))   setIsNotifOpen(false);
+      if (searchRef.current  && !searchRef.current.contains(e.target))  setSearchOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
+
+  // Close search on route change
+  useEffect(() => {
+    setSearchOpen(false);
+    setSearchQuery('');
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try { await logout(); navigate('/login'); }
@@ -65,7 +161,6 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
   const handleNotifClick = (notif) => {
     markAsRead(notif.id);
     setIsNotifOpen(false);
-    // Route based on notification type
     if (notif.reference_type === 'invoice') navigate('/revenue');
     else if (notif.reference_id) navigate(`/leads/${notif.reference_id}`);
     else navigate('/');
@@ -77,14 +172,134 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
       {/* Left: search */}
       <div className="flex items-center gap-6 flex-1">
         {!isDetailPage && (
-          <div className="flex-1 max-w-xl animate-in fade-in slide-in-from-left-4 duration-500">
+          <div className="flex-1 max-w-xl animate-in fade-in slide-in-from-left-4 duration-500" ref={searchRef}>
             <div className="relative group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={18} />
+              {searchLoading
+                ? <Loader2 className="absolute left-4 top-1/2 -translate-y-1/2 text-primary animate-spin" size={18} />
+                : <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-primary transition-colors" size={18} />
+              }
               <input
                 type="text"
-                placeholder="Search everything..."
-                className="w-full bg-slate-100/50 dark:bg-white/5 border-none rounded-xl py-3 pl-12 pr-4 text-sm focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-slate-500 outline-none backdrop-blur-md"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                onKeyDown={handleSearchKeyDown}
+                onFocus={() => { if (searchQuery.trim().length >= 2) setSearchOpen(true); }}
+                placeholder="Search leads, customers… (Enter to search all)"
+                className="w-full bg-slate-100/50 dark:bg-white/5 border-none rounded-xl py-3 pl-12 pr-10 text-sm focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-slate-400 outline-none backdrop-blur-md"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setSearchOpen(false); setSearchResults({ leads: [], customers: [] }); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+
+              {/* Search results dropdown */}
+              {searchOpen && searchQuery.trim().length >= 2 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-2 duration-200 overflow-hidden">
+                  {searchLoading && (
+                    <div className="flex items-center gap-3 px-4 py-4 text-sm text-slate-400">
+                      <Loader2 size={16} className="animate-spin text-primary" />
+                      Searching…
+                    </div>
+                  )}
+
+                  {!searchLoading && !hasResults && (
+                    <div className="px-4 py-8 text-center">
+                      <Search size={24} className="text-slate-200 dark:text-slate-700 mx-auto mb-2" />
+                      <p className="text-xs font-bold text-slate-400">No results for "{searchQuery}"</p>
+                      <p className="text-[10px] text-slate-300 dark:text-slate-600 mt-1">Try a different name, phone, or email</p>
+                    </div>
+                  )}
+
+                  {!searchLoading && hasResults && (
+                    <div className="max-h-[420px] overflow-y-auto">
+                      {/* Leads section */}
+                      {searchResults.leads.length > 0 && (
+                        <div>
+                          <div className="px-4 pt-3 pb-1.5 flex items-center gap-2">
+                            <TrendingUp size={11} className="text-blue-500" />
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Leads</p>
+                          </div>
+                          {searchResults.leads.map((lead) => (
+                            <button
+                              key={lead.id}
+                              onClick={() => handleResultClick(`/leads/${lead.id}`)}
+                              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="size-8 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center flex-shrink-0">
+                                  <TrendingUp size={14} className="text-blue-500" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate group-hover:text-primary transition-colors">
+                                    {lead.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400 truncate">{lead.phone || lead.email || '—'}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                                {lead.loan_type && (
+                                  <span className="text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full uppercase hidden sm:block">
+                                    {lead.loan_type}
+                                  </span>
+                                )}
+                                <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase ${LEAD_STATUS_COLORS[lead.status] || 'bg-slate-100 text-slate-500'}`}>
+                                  {lead.status}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Customers section */}
+                      {searchResults.customers.length > 0 && (
+                        <div className={searchResults.leads.length > 0 ? 'border-t border-slate-100 dark:border-slate-800' : ''}>
+                          <div className="px-4 pt-3 pb-1.5 flex items-center gap-2">
+                            <Users size={11} className="text-emerald-500" />
+                            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Customers</p>
+                          </div>
+                          {searchResults.customers.map((cust) => (
+                            <button
+                              key={cust.id}
+                              onClick={() => handleResultClick(`/customers/${cust.id}`)}
+                              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left group"
+                            >
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className="size-8 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center flex-shrink-0">
+                                  <Users size={14} className="text-emerald-500" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-slate-900 dark:text-white truncate group-hover:text-primary transition-colors">
+                                    {cust.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400 truncate">{cust.phone || cust.email || '—'}</p>
+                                </div>
+                              </div>
+                              <span className="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase bg-emerald-100 text-emerald-700 flex-shrink-0 ml-3">
+                                Customer
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Footer: search all */}
+                      <div className="border-t border-slate-100 dark:border-slate-800 px-4 py-2.5 bg-slate-50/60 dark:bg-black/20">
+                        <button
+                          onClick={() => { navigate(`/leads?q=${encodeURIComponent(searchQuery.trim())}`); setSearchQuery(''); setSearchOpen(false); }}
+                          className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
+                        >
+                          View all leads matching "{searchQuery}" →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -118,7 +333,6 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
 
           {isNotifOpen && (
             <div className="absolute right-0 mt-3 w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-200 overflow-hidden">
-              {/* Dropdown header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <p className="text-[10px] font-black text-slate-900 dark:text-white uppercase tracking-widest">Notifications</p>
@@ -138,7 +352,6 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
                 </div>
               </div>
 
-              {/* Notification list */}
               <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                 {notifications.length === 0 ? (
                   <div className="py-12 text-center">
@@ -175,7 +388,6 @@ const Header = ({ toggleSidebar, toggleTheme, isDarkMode }) => {
                 })}
               </div>
 
-              {/* Footer link */}
               {notifications.length > 0 && (
                 <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-black/20">
                   <Link

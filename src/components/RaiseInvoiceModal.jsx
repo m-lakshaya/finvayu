@@ -3,6 +3,7 @@ import { X, Receipt, IndianRupee, FileText, Loader2, CheckCircle2 } from 'lucide
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { sendNotification } from '../hooks/useNotificationsDB';
+import { fmtCurrency } from '../utils/formatUtils';
 
 /**
  * RaiseInvoiceModal
@@ -190,18 +191,21 @@ const RaiseInvoiceModal = ({ isOpen, onClose, lead, onInvoiceRaised }) => {
                 <div className="relative">
                   <IndianRupee size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="number"
-                    min="1"
-                    step="1"
+                    inputMode="decimal"
                     value={form.amount}
-                    onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                    onChange={e => {
+                      const raw = e.target.value.replace(/[^0-9.]/g, '');
+                      const parts = raw.split('.');
+                      const clean = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : raw;
+                      setForm(f => ({ ...f, amount: clean }));
+                    }}
                     placeholder="Enter commission amount"
                     className="w-full pl-9 pr-4 py-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/50 transition-all"
                   />
                 </div>
                 {lead?.commission_rate && lead?.loan_amount && (
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Suggested: ₹{Math.round((lead.loan_amount * lead.commission_rate) / 100).toLocaleString()} ({lead.commission_rate}% of loan amount)
+                    Suggested: {fmtCurrency(Math.round((lead.loan_amount * lead.commission_rate) / 100))} ({lead.commission_rate}% of loan amount)
                   </p>
                 )}
               </div>
